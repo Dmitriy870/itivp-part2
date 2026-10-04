@@ -1,0 +1,10 @@
+node_modules/
+.env
+logs/
+coverage/
+.DS_Store
+npm-debug.log*
+API.md
+ARCHITECTURE.md
+report/
+~$*.docx
