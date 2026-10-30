@@ -2,6 +2,9 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_ACCESS_SECRET = 'test-access-secret-at-least-32-characters-long';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-different-and-32-characters';
 process.env.CORS_ORIGINS = 'http://allowed.example';
+process.env.GLOBAL_RATE_LIMIT = '1000';
+process.env.AUTH_RATE_LIMIT = '1000';
+process.env.WRITE_RATE_LIMIT = '1000';
 
 const { after, before, beforeEach, test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -137,25 +140,18 @@ test('пять неверных паролей блокируют аккаунт
   assert.equal((await blocked.json()).error.code, 'ACCOUNT_LOCKED');
 });
 
-test('user не может создать курс, moderator может, admin может удалить', async () => {
+test('аутентифицированный user может создать курс, удалить его может только admin', async () => {
   const userLogin = await loginAs('user@example.com', 'User123!');
-  const denied = await jsonRequest('/courses', {
+  const created = await jsonRequest('/courses', {
     method: 'POST',
     token: userLogin.accessToken,
     body: coursePayload(),
   });
-  assert.equal(denied.status, 403);
-
-  const moderatorLogin = await loginAs('moderator@example.com', 'Moderator123!');
-  const created = await jsonRequest('/courses', {
-    method: 'POST',
-    token: moderatorLogin.accessToken,
-    body: coursePayload(),
-  });
   const createdBody = await created.json();
   assert.equal(created.status, 201);
-  assert.equal(createdBody.data.createdBy, users.moderator.id);
+  assert.equal(createdBody.data.createdBy, users.user.id);
 
+  const moderatorLogin = await loginAs('moderator@example.com', 'Moderator123!');
   const moderatorDelete = await fetch(`${baseUrl}/courses/${createdBody.data.id}`, {
     method: 'DELETE',
     headers: { authorization: `Bearer ${moderatorLogin.accessToken}` },
@@ -170,11 +166,47 @@ test('user не может создать курс, moderator может, admin 
   assert.equal(removed.status, 204);
 });
 
-test('CRUD курсов валидирует UUID, query и входные поля', async () => {
-  const moderatorLogin = await loginAs('moderator@example.com', 'Moderator123!');
+test('обновить курс может только его автор или admin', async () => {
+  const userLogin = await loginAs('user@example.com', 'User123!');
   const created = await jsonRequest('/courses', {
     method: 'POST',
+    token: userLogin.accessToken,
+    body: coursePayload(),
+  });
+  const course = (await created.json()).data;
+
+  const moderatorLogin = await loginAs('moderator@example.com', 'Moderator123!');
+  const foreignUpdate = await jsonRequest(`/courses/${course.id}`, {
+    method: 'PUT',
     token: moderatorLogin.accessToken,
+    body: { ...coursePayload(), title: 'Чужое изменение' },
+  });
+  assert.equal(foreignUpdate.status, 403);
+  assert.equal((await foreignUpdate.json()).error.code, 'COURSE_UPDATE_FORBIDDEN');
+
+  const authorUpdate = await jsonRequest(`/courses/${course.id}`, {
+    method: 'PUT',
+    token: userLogin.accessToken,
+    body: { ...coursePayload(), title: 'Изменение автора' },
+  });
+  assert.equal(authorUpdate.status, 200);
+  assert.equal((await authorUpdate.json()).data.title, 'Изменение автора');
+
+  const adminLogin = await loginAs('admin@example.com', 'Admin123!');
+  const adminUpdate = await jsonRequest(`/courses/${course.id}`, {
+    method: 'PUT',
+    token: adminLogin.accessToken,
+    body: { ...coursePayload(), title: 'Изменение администратора' },
+  });
+  assert.equal(adminUpdate.status, 200);
+  assert.equal((await adminUpdate.json()).data.title, 'Изменение администратора');
+});
+
+test('CRUD курсов валидирует UUID, query и входные поля', async () => {
+  const userLogin = await loginAs('user@example.com', 'User123!');
+  const created = await jsonRequest('/courses', {
+    method: 'POST',
+    token: userLogin.accessToken,
     body: coursePayload(),
   });
   const course = (await created.json()).data;
@@ -182,6 +214,10 @@ test('CRUD курсов валидирует UUID, query и входные по�
   const list = await fetch(`${baseUrl}/courses?page=1&limit=10&format=online&published=true`);
   assert.equal(list.status, 200);
   assert.equal((await list.json()).pagination.total, 1);
+
+  const search = await fetch(`${baseUrl}/courses?search=${encodeURIComponent('безопасная разработка')}`);
+  assert.equal(search.status, 200);
+  assert.equal((await search.json()).pagination.total, 1);
 
   const injection = encodeURIComponent("%' OR 1=1 --");
   const injectionAttempt = await fetch(`${baseUrl}/courses?category=${injection}`);
@@ -193,7 +229,7 @@ test('CRUD курсов валидирует UUID, query и входные по�
 
   const updated = await jsonRequest(`/courses/${course.id}`, {
     method: 'PUT',
-    token: moderatorLogin.accessToken,
+    token: userLogin.accessToken,
     body: { ...coursePayload(), title: 'Обновлённый безопасный REST API' },
   });
   assert.equal(updated.status, 200);
@@ -204,7 +240,7 @@ test('CRUD курсов валидирует UUID, query и входные по�
 
   const htmlInput = await jsonRequest('/courses', {
     method: 'POST',
-    token: moderatorLogin.accessToken,
+    token: userLogin.accessToken,
     body: { ...coursePayload(), title: '<script>alert(1)</script>' },
   });
   assert.equal(htmlInput.status, 400);

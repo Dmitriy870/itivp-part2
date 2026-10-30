@@ -15,7 +15,7 @@ function createRateLimits({ securityLog }) {
 
   const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 100,
+  limit: Number(process.env.GLOBAL_RATE_LIMIT || 100),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   handler,
@@ -23,7 +23,7 @@ function createRateLimits({ securityLog }) {
 
   const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  limit: 20,
+  limit: Number(process.env.AUTH_RATE_LIMIT || 20),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   handler,
@@ -31,7 +31,7 @@ function createRateLimits({ securityLog }) {
 
   const perUserWriteLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 30,
+  limit: Number(process.env.WRITE_RATE_LIMIT || 30),
   standardHeaders: 'draft-8',
   legacyHeaders: false,
   keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),

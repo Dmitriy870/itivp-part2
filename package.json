@@ -5,7 +5,7 @@
   "main": "src/main/server.js",
   "scripts": {
     "start": "node src/main/server.js",
-    "dev": "node --watch src/main/server.js",
+    "dev": "nodemon src/main/server.js",
     "db:seed": "node src/main/seed.js",
     "test": "node --test --test-concurrency=1"
   },
@@ -13,6 +13,9 @@
   "author": "",
   "license": "ISC",
   "overrides": {
+    "body-parser": "^2.4.0",
+    "ip-address": "^10.7.5",
+    "qs": "^6.17.0",
     "sequelize": {
       "uuid": "^11.1.1"
     }
@@ -32,6 +35,7 @@
     "sequelize": "^6.37.8"
   },
   "devDependencies": {
+    "nodemon": "^3.1.14",
     "pg-mem": "^3.0.14"
   }
 }

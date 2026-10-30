@@ -7,9 +7,10 @@ class CourseRepository extends BaseRepository {
     super(Course);
   }
 
-  findPage({ page, limit, category, format, published }) {
+  findPage({ page, limit, category, search, format, published }) {
     const where = {};
     if (category) where.category = { [Op.iLike]: `%${category}%` };
+    if (search) where.title = { [Op.iLike]: `%${search}%` };
     if (format) where.format = format;
     if (published !== undefined) where.published = published;
 

@@ -15,7 +15,11 @@ function createCourseController(courseService) {
   }
 
   async function update(req, res) {
-  const course = await courseService.update(req.validated.params.id, req.validated.body);
+  const course = await courseService.update(
+  req.validated.params.id,
+  req.validated.body,
+  { id: req.user.id, role: req.user.role },
+  );
   res.json({ data: course });
   }
 

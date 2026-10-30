@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Secure Training Platform API",
-    "description": "Позитивные и негативные сценарии безопасного REST API платформы переподготовки.",
+    "name": "KR1 Training Platform API",
+    "description": "Регистрация, JWT, CRUD курсов, поиск, валидация и проверка прав автора/администратора для контрольной работы №1.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -106,7 +106,17 @@
           "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 public list', () => pm.response.to.have.status(200));"] } }]
         },
         {
-          "name": "User forbidden to create course",
+          "name": "Create course without JWT",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Безопасная разработка REST API\",\n  \"description\": \"Программа профессиональной переподготовки по безопасности серверных приложений.\",\n  \"category\": \"Информационные технологии\",\n  \"format\": \"online\",\n  \"durationHours\": 420,\n  \"price\": 1750,\n  \"certificateIssued\": true,\n  \"webinarUrl\": \"https://webinars.example.com/secure-api\",\n  \"published\": true\n}" },
+            "url": "{{baseUrl}}/courses"
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('401 authentication required', () => pm.response.to.have.status(401));"] } }]
+        },
+        {
+          "name": "User creates course",
           "request": {
             "method": "POST",
             "header": [
@@ -116,7 +126,36 @@
             "body": { "mode": "raw", "raw": "{\n  \"title\": \"Безопасная разработка REST API\",\n  \"description\": \"Программа профессиональной переподготовки по безопасности серверных приложений.\",\n  \"category\": \"Информационные технологии\",\n  \"format\": \"online\",\n  \"durationHours\": 420,\n  \"price\": 1750,\n  \"certificateIssued\": true,\n  \"webinarUrl\": \"https://webinars.example.com/secure-api\",\n  \"published\": true\n}" },
             "url": "{{baseUrl}}/courses"
           },
-          "event": [{ "listen": "test", "script": { "exec": ["pm.test('403 role guard', () => pm.response.to.have.status(403));"] } }]
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('201 course created by user', () => pm.response.to.have.status(201));",
+            "if (pm.response.code === 201) pm.collectionVariables.set('courseId', pm.response.json().data.id);"
+          ] } }]
+        },
+        {
+          "name": "Get course by UUID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/courses/{{courseId}}" },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 course details', () => pm.response.to.have.status(200));"] } }]
+        },
+        {
+          "name": "Search course by title",
+          "request": { "method": "GET", "url": "{{baseUrl}}/courses?search=Безопасная&page=1&limit=20" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('200 search results', () => pm.response.to.have.status(200));",
+            "pm.test('created course found', () => pm.expect(pm.response.json().data.some((course) => course.id === pm.collectionVariables.get('courseId'))).to.be.true);"
+          ] } }]
+        },
+        {
+          "name": "Author updates course",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{userToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Безопасная разработка REST API на Node.js\",\n  \"description\": \"Обновлённая программа профессиональной переподготовки по безопасности серверных приложений.\",\n  \"category\": \"Информационные технологии\",\n  \"format\": \"online\",\n  \"durationHours\": 440,\n  \"price\": 1850,\n  \"certificateIssued\": true,\n  \"webinarUrl\": \"https://webinars.example.com/secure-api\",\n  \"published\": true\n}" },
+            "url": "{{baseUrl}}/courses/{{courseId}}"
+          },
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('200 updated by author', () => pm.response.to.have.status(200));"] } }]
         },
         {
           "name": "Login moderator",
@@ -129,24 +168,17 @@
           "event": [{ "listen": "test", "script": { "exec": ["if (pm.response.code === 200) pm.collectionVariables.set('moderatorToken', pm.response.json().data.accessToken);"] } }]
         },
         {
-          "name": "Moderator creates course",
+          "name": "Non-author cannot update course",
           "request": {
-            "method": "POST",
+            "method": "PUT",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
               { "key": "Authorization", "value": "Bearer {{moderatorToken}}" }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Безопасная разработка REST API\",\n  \"description\": \"Программа профессиональной переподготовки по безопасности серверных приложений.\",\n  \"category\": \"Информационные технологии\",\n  \"format\": \"online\",\n  \"durationHours\": 420,\n  \"price\": 1750,\n  \"certificateIssued\": true,\n  \"webinarUrl\": \"https://webinars.example.com/secure-api\",\n  \"published\": true\n}" },
-            "url": "{{baseUrl}}/courses"
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Чужое изменение курса\",\n  \"description\": \"Попытка изменить курс другим пользователем должна быть отклонена сервером.\",\n  \"category\": \"Информационные технологии\",\n  \"format\": \"online\",\n  \"durationHours\": 440,\n  \"price\": 1850,\n  \"certificateIssued\": true,\n  \"webinarUrl\": \"https://webinars.example.com/secure-api\",\n  \"published\": true\n}" },
+            "url": "{{baseUrl}}/courses/{{courseId}}"
           },
-          "event": [{ "listen": "test", "script": { "exec": [
-            "pm.test('201 created', () => pm.response.to.have.status(201));",
-            "if (pm.response.code === 201) pm.collectionVariables.set('courseId', pm.response.json().data.id);"
-          ] } }]
-        },
-        {
-          "name": "Get course by UUID",
-          "request": { "method": "GET", "url": "{{baseUrl}}/courses/{{courseId}}" }
+          "event": [{ "listen": "test", "script": { "exec": ["pm.test('403 only author or admin', () => pm.response.to.have.status(403));"] } }]
         },
         {
           "name": "Login admin",

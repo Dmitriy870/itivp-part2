@@ -19,6 +19,7 @@ const courseQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(20),
   category: text(1, 80),
+  search: text(1, 160),
   format: Joi.string().valid(...COURSE_FORMATS),
   published: Joi.boolean(),
 }).required();
