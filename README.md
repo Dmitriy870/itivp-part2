@@ -8,6 +8,7 @@
 - health-check API: <http://207.180.199.246:8080/api/health>;
 - Grafana: <http://207.180.199.246:3002>;
 - Uptime Kuma: <http://207.180.199.246:3001>;
+- публичная status page: <http://207.180.199.246:3001/status/training-platform>;
 - Dockhand: <https://207.180.199.246:9444>.
 
 UptimeRobot и Sentry подключаются как внешние сервисы; их публичные ссылки добавляются после создания проектов и status page.
