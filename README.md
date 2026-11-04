@@ -7,6 +7,7 @@
 - приложение и API: <http://207.180.199.246:8080>;
 - health-check API: <http://207.180.199.246:8080/api/health>;
 - Grafana: <http://207.180.199.246:3002>;
+- Uptime Kuma: <http://207.180.199.246:3001>;
 - Dockhand: <https://207.180.199.246:9444>.
 
 UptimeRobot и Sentry подключаются как внешние сервисы; их публичные ссылки добавляются после создания проектов и status page.
@@ -27,6 +28,7 @@ UptimeRobot и Sentry подключаются как внешние серви�
 - React-интерфейс каталога и аутентификации;
 - метрики Prometheus, дашборд и алерты Grafana;
 - централизованные Docker-логи в Loki через Grafana Alloy;
+- независимый мониторинг доступности в Uptime Kuma;
 - интеграция Sentry для backend и frontend;
 - автоматический CI/CD из ветки `ipr22`.
 
@@ -74,7 +76,7 @@ PostgreSQL и весь стек наблюдаемости описаны в [`c
 docker compose --env-file /opt/training-platform/shared/.env.production -f compose.prod.yml up -d --build
 ```
 
-Из внешней сети открыты только frontend/API на порту `8080` и Grafana на `3002`. PostgreSQL, Prometheus, Loki и экспортёры доступны только во внутренних Docker-сетях.
+Из внешней сети открыты frontend/API на порту `8080`, Uptime Kuma на `3001` и Grafana на `3002`. PostgreSQL, Prometheus, Loki и экспортёры доступны только во внутренних Docker-сетях.
 
 ## CI/CD
 

@@ -190,6 +190,20 @@ services:
     depends_on:
       - loki
 
+  uptime-kuma:
+    image: louislam/uptime-kuma:2.5.8
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - uptime_kuma_data:/app/data
+    networks:
+      - app
+      - monitoring
+    depends_on:
+      api:
+        condition: service_healthy
+
   grafana:
     image: grafana/grafana:13.3.0
     restart: unless-stopped
@@ -227,3 +241,4 @@ volumes:
   grafana_data:
   loki_data:
   alloy_data:
+  uptime_kuma_data:
