@@ -1,4 +1,15 @@
-Серверное приложение для платформы курсов профессиональной переподготовки, вебинаров и сертификатов. Проект предоставляет REST API для работы с пользователями и учебными курсами.
+# Training Platform
+
+Платформа курсов профессиональной переподготовки, вебинаров и сертификатов. Проект включает React-фронтенд, REST API на Node.js, PostgreSQL и production-инфраструктуру мониторинга.
+
+## Production
+
+- приложение и API: <http://207.180.199.246:8080>;
+- health-check API: <http://207.180.199.246:8080/api/health>;
+- Grafana: <http://207.180.199.246:3002>;
+- Dockhand: <https://207.180.199.246:9444>.
+
+UptimeRobot и Sentry подключаются как внешние сервисы; их публичные ссылки добавляются после создания проектов и status page.
 
 ## Возможности
 
@@ -13,6 +24,11 @@
 - журналирование событий безопасности;
 - защита HTTP-заголовков и контроль CORS;
 - интеграционные тесты основных API-сценариев.
+- React-интерфейс каталога и аутентификации;
+- метрики Prometheus, дашборд и алерты Grafana;
+- централизованные Docker-логи в Loki через Grafana Alloy;
+- интеграция Sentry для backend и frontend;
+- автоматический CI/CD из ветки `ipr22`.
 
 ## Технологии
 
@@ -22,6 +38,9 @@
 - Joi, Helmet и express-rate-limit;
 - Docker Compose;
 - Postman и `node:test`.
+- React, TypeScript и Vite;
+- Prometheus, Grafana, Loki, Alloy, cAdvisor и node-exporter;
+- GitHub Actions, Sentry и UptimeRobot.
 
 ## Быстрый запуск
 
@@ -34,6 +53,51 @@ npm run dev
 ```
 
 API: <http://localhost:3000>. Проверка состояния: <http://localhost:3000/health>.
+
+Frontend для локальной разработки:
+
+```bash
+npm install --prefix frontend
+npm run dev --prefix frontend
+```
+
+## Production-запуск
+
+Для backend и frontend используются отдельные Dockerfile:
+
+- [`Dockerfile`](./Dockerfile) — Node.js API;
+- [`frontend/Dockerfile`](./frontend/Dockerfile) — сборка React и Nginx.
+
+PostgreSQL и весь стек наблюдаемости описаны в [`compose.prod.yml`](./compose.prod.yml). На сервере создайте `/opt/training-platform/shared/.env.production` по шаблону [`.env.production.example`](./.env.production.example), затем выполните:
+
+```bash
+docker compose --env-file /opt/training-platform/shared/.env.production -f compose.prod.yml up -d --build
+```
+
+Из внешней сети открыты только frontend/API на порту `8080` и Grafana на `3002`. PostgreSQL, Prometheus, Loki и экспортёры доступны только во внутренних Docker-сетях.
+
+## CI/CD
+
+Workflow [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) запускается при push в `ipr22` и выполняет:
+
+1. установку зависимостей и ESLint для двух частей приложения;
+2. интеграционные тесты API и production-сборку frontend;
+3. аудит production-зависимостей;
+4. сборку отдельных Docker-образов backend и frontend;
+5. загрузку release на VPS, запуск Compose и проверку `/frontend-health` и `/api/health`;
+6. Telegram-уведомление об успехе или ошибке.
+
+Необходимые GitHub Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+
+## Наблюдаемость
+
+- `/api/metrics` экспортирует Prometheus-метрики запросов, задержки, памяти и uptime процесса;
+- Prometheus также собирает ресурсы VPS и контейнеров;
+- Grafana автоматически получает dashboard `Training Platform — Production Overview` и правила оповещений;
+- Alloy читает логи контейнеров через Docker API и отправляет их в Loki;
+- Pino редактирует пароли, JWT, cookies и заголовки авторизации до записи логов;
+- Sentry включается переменными `SENTRY_DSN` и `VITE_SENTRY_DSN`;
+- защищённый `POST /api/debug/error` позволяет один раз подтвердить доставку тестовой ошибки в Sentry.
 
 ## Команды
 

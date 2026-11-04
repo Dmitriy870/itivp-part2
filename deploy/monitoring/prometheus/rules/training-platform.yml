@@ -1,0 +1,36 @@
+groups:
+  - name: training-platform
+    rules:
+      - alert: TrainingPlatformApiDown
+        expr: up{job="training-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Training Platform API is unavailable
+          description: Prometheus cannot scrape the API for more than one minute.
+
+      - alert: TrainingPlatformHigh5xxRate
+        expr: sum(rate(training_platform_http_requests_total{status_code=~"5.."}[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Elevated API 5xx rate
+          description: The API is returning more than 0.05 server errors per second.
+
+      - alert: HostHighMemoryUsage
+        expr: 100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: VPS memory usage is above 85 percent
+
+      - alert: HostDiskSpaceLow
+        expr: 100 * node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Less than 15 percent disk space remains

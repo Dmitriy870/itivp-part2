@@ -54,6 +54,18 @@ test('Helmet устанавливает CSP и X-Frame-Options DENY', async () =
   assert.equal(response.headers.get('x-powered-by'), null);
 });
 
+test('/metrics экспортирует uptime, память и счётчик HTTP-запросов', async () => {
+  await fetch(`${baseUrl}/health`);
+  const response = await fetch(`${baseUrl}/metrics`);
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /text\/plain/);
+  assert.match(body, /training_platform_process_start_time_seconds/);
+  assert.match(body, /training_platform_process_resident_memory_bytes/);
+  assert.match(body, /training_platform_http_requests_total/);
+});
+
 test('регистрация создаёт только user и блокирует mass assignment роли', async () => {
   const attackResponse = await jsonRequest('/auth/register', {
     method: 'POST',

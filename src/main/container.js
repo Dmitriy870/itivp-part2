@@ -7,6 +7,7 @@ const RefreshTokenRepository = require('../infrastructure/database/repositories/
 const tokenProvider = require('../infrastructure/security/tokenProvider');
 const passwordHasher = require('../infrastructure/security/passwordHasher');
 const { securityLog } = require('../infrastructure/logging/securityLogger');
+const { sequelize } = require('../infrastructure/database/models');
 const clock = require('../shared/time/clock');
 const idGenerator = require('../shared/ids/idGenerator');
 
@@ -35,6 +36,11 @@ function createContainer() {
     repositories,
     services,
     security: { tokenProvider, passwordHasher, securityLog },
+    infrastructure: {
+      async checkDatabase() {
+        await sequelize.authenticate();
+      },
+    },
     clock,
   };
 }

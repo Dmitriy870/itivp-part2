@@ -13,10 +13,18 @@ const createRoleGuard = require('./middleware/roleGuard');
 const createRateLimits = require('./middleware/rateLimits');
 const createAuditAdminAction = require('./middleware/auditAdminAction');
 const { notFound, createErrorHandler } = require('./middleware/errorHandler');
+const requestLogger = require('../../infrastructure/observability/requestLogger');
+const { metricsMiddleware, metricsHandler } = require('../../infrastructure/observability/metrics');
 
 function createApp(container) {
   const app = express();
-  const { repositories, services, security, clock } = container;
+  const {
+    repositories,
+    services,
+    security,
+    infrastructure,
+    clock,
+  } = container;
   const authenticate = createAuthenticate({
     userRepository: repositories.user,
     tokenProvider: security.tokenProvider,
@@ -33,7 +41,7 @@ function createApp(container) {
   };
 
   app.disable('x-powered-by');
-  app.set('trust proxy', false);
+  app.set('trust proxy', process.env.NODE_ENV === 'production' ? 1 : false);
   app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -57,13 +65,47 @@ function createApp(container) {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   }));
+  app.use(requestLogger);
+  app.use(metricsMiddleware);
   app.use(rateLimits.globalLimiter);
   app.use(express.json({ limit: '100kb', type: 'application/json' }));
   app.use(cookieParser());
 
-  app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: clock.now().toISOString() });
+  app.get('/health', async (req, res) => {
+    try {
+      await infrastructure.checkDatabase();
+      const memory = process.memoryUsage();
+      res.json({
+        status: 'ok',
+        timestamp: clock.now().toISOString(),
+        uptimeSeconds: Math.floor(process.uptime()),
+        memory: {
+          rssBytes: memory.rss,
+          heapUsedBytes: memory.heapUsed,
+        },
+        database: 'available',
+        release: process.env.APP_RELEASE || 'development',
+      });
+    } catch (error) {
+      req.log.error({ error }, 'Health check failed');
+      res.status(503).json({
+        status: 'degraded',
+        timestamp: clock.now().toISOString(),
+        database: 'unavailable',
+      });
+    }
   });
+  app.get('/metrics', metricsHandler);
+
+  if (process.env.ENABLE_TEST_ENDPOINTS === 'true') {
+    app.post('/debug/error', (req, res, next) => {
+      if (!process.env.DEBUG_ENDPOINT_TOKEN
+        || req.get('x-debug-token') !== process.env.DEBUG_ENDPOINT_TOKEN) {
+        return res.status(404).json({ error: { code: 'ROUTE_NOT_FOUND', message: 'Маршрут не найден' } });
+      }
+      return next(new Error('Test Sentry error from training platform API'));
+    });
+  }
   app.use('/auth', createAuthRoutes({
     controller: controllers.auth,
     authenticate,

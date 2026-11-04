@@ -43,9 +43,9 @@ function requestMeta(req) {
 function cookieOptions() {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     sameSite: 'strict',
-    path: '/auth',
+    path: process.env.REFRESH_COOKIE_PATH || '/auth',
     maxAge: Number(process.env.REFRESH_TOKEN_TTL_DAYS || 7) * 24 * 60 * 60 * 1000,
   };
 }

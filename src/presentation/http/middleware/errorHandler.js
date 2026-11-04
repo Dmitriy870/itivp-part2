@@ -1,12 +1,13 @@
 const { BaseError, UniqueConstraintError, ValidationError } = require('sequelize');
 const AppError = require('../../../shared/errors/AppError');
+const { captureException } = require('../../../infrastructure/observability/sentry');
 
 function notFound(req, res, next) {
   next(new AppError(404, 'ROUTE_NOT_FOUND', 'Маршрут не найден'));
 }
 
 function createErrorHandler({ securityLog }) {
-  return function errorHandler(error, req, res, next) {
+  return function errorHandler(error, req, res, _next) {
   let normalized = error;
 
   if (error instanceof UniqueConstraintError) {
@@ -34,6 +35,11 @@ function createErrorHandler({ securityLog }) {
       path: req.originalUrl,
       error: error.message,
       stack: isProduction ? undefined : error.stack,
+    });
+    captureException(error, {
+      method: req.method,
+      path: req.originalUrl,
+      requestId: req.id,
     });
   }
 

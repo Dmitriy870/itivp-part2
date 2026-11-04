@@ -1,6 +1,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const clock = require('../../shared/time/clock');
+const logger = require('../observability/logger');
 
 const logDirectory = path.join(__dirname, '../../../logs');
 const logFile = path.join(logDirectory, 'security.log');
@@ -13,7 +14,7 @@ function securityLog(event, details = {}) {
   };
   const line = JSON.stringify(entry);
 
-  console.warn(`[SECURITY] ${line}`);
+  logger.warn({ securityEvent: entry }, 'Security event');
 
   if (process.env.NODE_ENV !== 'test') {
     fs.mkdirSync(logDirectory, { recursive: true });

@@ -1,0 +1,229 @@
+name: training-platform
+
+x-api-environment: &api-environment
+  NODE_ENV: production
+  PORT: 3000
+  DATABASE_URL: postgres://training_app:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/training_platform
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+  ACCESS_TOKEN_TTL: ${ACCESS_TOKEN_TTL:-15m}
+  REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-7}
+  REFRESH_COOKIE_PATH: /api/auth
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://207.180.199.246:8080}
+  GLOBAL_RATE_LIMIT: ${GLOBAL_RATE_LIMIT:-300}
+  AUTH_RATE_LIMIT: ${AUTH_RATE_LIMIT:-30}
+  WRITE_RATE_LIMIT: ${WRITE_RATE_LIMIT:-60}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_ENVIRONMENT: production
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+  APP_RELEASE: ${APP_RELEASE:-production}
+  ENABLE_TEST_ENDPOINTS: ${ENABLE_TEST_ENDPOINTS:-true}
+  DEBUG_ENDPOINT_TOKEN: ${DEBUG_ENDPOINT_TOKEN:?DEBUG_ENDPOINT_TOKEN is required}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: training_platform
+      POSTGRES_USER: training_app
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U training_app -d training_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      <<: *api-environment
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?ADMIN_EMAIL is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      MODERATOR_EMAIL: ${MODERATOR_EMAIL:?MODERATOR_EMAIL is required}
+      MODERATOR_PASSWORD: ${MODERATOR_PASSWORD:?MODERATOR_PASSWORD is required}
+    command: ["node", "src/main/seed.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *api-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    networks:
+      - app
+      - monitoring
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  web:
+    build:
+      context: frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        VITE_APP_RELEASE: ${APP_RELEASE:-production}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    networks:
+      - app
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./deploy/monitoring/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring
+    expose:
+      - "9090"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.0
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - monitoring
+    expose:
+      - "9100"
+
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.60.6
+    restart: unless-stopped
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
+    networks:
+      - monitoring
+    expose:
+      - "8080"
+
+  loki:
+    image: grafana/loki:3.7.9
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./deploy/monitoring/loki/config.yml:/etc/loki/config.yml:ro
+      - loki_data:/loki
+    networks:
+      - monitoring
+    expose:
+      - "3100"
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    group_add:
+      - ${DOCKER_GID:-112}
+    volumes:
+      - ./deploy/monitoring/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy_data:/var/lib/alloy/data
+    networks:
+      - monitoring
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-http://207.180.199.246:3002}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-0000000000:placeholder}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+    ports:
+      - "3002:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+      - loki
+
+networks:
+  app:
+    name: training-platform-app
+  monitoring:
+    name: training-platform-monitoring
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+  alloy_data:

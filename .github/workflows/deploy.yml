@@ -1,0 +1,144 @@
+name: Verify and deploy production
+
+on:
+  push:
+    branches: [ipr22]
+  workflow_dispatch:
+
+concurrency:
+  group: training-platform-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  verify:
+    name: Lint, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Lint backend
+        run: npm run lint
+
+      - name: Lint frontend
+        run: npm run lint --prefix frontend
+
+      - name: Run API tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Audit production dependencies
+        run: |
+          npm audit --omit=dev
+          npm --prefix frontend audit --omit=dev
+
+      - name: Build backend image
+        run: docker build --tag training-platform-api:${{ github.sha }} .
+
+      - name: Build frontend image
+        run: docker build --tag training-platform-web:${{ github.sha }} frontend
+
+  deploy:
+    name: Deploy to Contabo VPS
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/training-platform-deploy
+          chmod 600 ~/.ssh/training-platform-deploy
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Package release
+        run: |
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=frontend/node_modules \
+            --exclude=frontend/dist \
+            --exclude=.env \
+            --exclude=.env.production \
+            --exclude='._*' \
+            -czf /tmp/training-platform-${{ github.sha }}.tar.gz .
+
+      - name: Upload release
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/training-platform-deploy "$VPS_USER@$VPS_HOST" \
+            "mkdir -p /opt/training-platform/releases/${{ github.sha }}"
+          scp -i ~/.ssh/training-platform-deploy \
+            /tmp/training-platform-${{ github.sha }}.tar.gz \
+            "$VPS_USER@$VPS_HOST:/tmp/training-platform-${{ github.sha }}.tar.gz"
+
+      - name: Start release and verify health
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          ssh -i ~/.ssh/training-platform-deploy "$VPS_USER@$VPS_HOST" \
+            "tar -xzf /tmp/training-platform-${{ github.sha }}.tar.gz -C /opt/training-platform/releases/${{ github.sha }} && \
+             bash /opt/training-platform/releases/${{ github.sha }}/deploy/scripts/deploy-release.sh \
+               /opt/training-platform/releases/${{ github.sha }} ${{ github.sha }}"
+
+  notify:
+    name: Notify Telegram
+    if: always()
+    needs: [verify, deploy]
+    runs-on: ubuntu-latest
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Send pipeline result
+        if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        env:
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          if [ "$VERIFY_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
+            STATUS="✅ Production deployment succeeded"
+          else
+            STATUS="❌ Production deployment failed"
+          fi
+          TEXT="$STATUS%0ARepository: $GITHUB_REPOSITORY%0ABranch: $GITHUB_REF_NAME%0ACommit: $GITHUB_SHA%0ARun: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          curl --fail --silent --show-error \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data "text=${TEXT}"
