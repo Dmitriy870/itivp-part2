@@ -33,6 +33,9 @@ class EnrollmentService {
     if (!enrollment) {
       throw new AppError(404, 'ENROLLMENT_NOT_FOUND', 'Запись на курс не найдена');
     }
+    if (enrollment.status === 'completed') {
+      throw new AppError(409, 'COURSE_ALREADY_COMPLETED', 'Завершённую программу нельзя отменить');
+    }
     await enrollment.destroy();
   }
 }

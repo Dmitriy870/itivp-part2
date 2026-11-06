@@ -5,6 +5,8 @@ const {
   Course,
   Lesson,
   Webinar,
+  Enrollment,
+  Certificate,
 } = require('../infrastructure/database/models');
 const passwordHasher = require('../infrastructure/security/passwordHasher');
 const { ROLES } = require('../domain/user/roles');
@@ -152,6 +154,14 @@ async function seed() {
         meetingUrl: course.webinarUrl,
       },
     });
+  }
+
+  const issuedCertificates = await Certificate.findAll({ attributes: ['userId', 'courseId'] });
+  for (const certificate of issuedCertificates) {
+    await Enrollment.update(
+      { status: 'completed' },
+      { where: { userId: certificate.userId, courseId: certificate.courseId } },
+    );
   }
 
   console.log('Тестовые пользователи и курсы созданы.');

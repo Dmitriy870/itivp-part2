@@ -33,6 +33,11 @@ export type Certificate = {
   courseTitle?: string;
 };
 
+export type VerifiedCertificate = Certificate & {
+  valid: true;
+  studentEmail: string;
+};
+
 export type LearningPlan = {
   course: { id: string; title: string };
   lessons: Array<{
@@ -166,4 +171,8 @@ export function getCertificates() {
 
 export function getUpcomingWebinars() {
   return request<{ data: Webinar[] }>('/webinars');
+}
+
+export function verifyCertificate(number: string) {
+  return request<{ data: VerifiedCertificate }>(`/certificates/verify/${encodeURIComponent(number)}`);
 }

@@ -341,6 +341,17 @@ test('прогресс обучения выпускает публично пр
   const certificate = (await certificates.json()).data[0];
   assert.match(certificate.number, /^CERT-\d{4}-[A-F0-9]{10}$/);
 
+  const completedEnrollment = await Enrollment.findOne({
+    where: { userId: users.user.id, courseId: course.id },
+  });
+  assert.equal(completedEnrollment.status, 'completed');
+
+  const cancelCompleted = await fetch(`${baseUrl}/enrollments/${course.id}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  assert.equal(cancelCompleted.status, 409);
+
   const verification = await fetch(`${baseUrl}/certificates/verify/${certificate.number}`);
   const verificationBody = await verification.json();
   assert.equal(verification.status, 200);

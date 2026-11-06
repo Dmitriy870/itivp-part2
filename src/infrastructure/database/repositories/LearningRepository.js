@@ -13,6 +13,11 @@ class LearningRepository {
     return Enrollment.findOne({ where: { userId, courseId } });
   }
 
+  completeEnrollment(enrollment) {
+    if (enrollment.status === 'completed') return enrollment;
+    return enrollment.update({ status: 'completed' });
+  }
+
   findLessons(courseId) {
     return Lesson.findAll({ where: { courseId }, order: [['position', 'ASC']] });
   }

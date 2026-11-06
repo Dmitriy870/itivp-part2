@@ -32,7 +32,7 @@ class LearningService {
   }
 
   async completeLesson(userId, courseId, lessonId) {
-    await this.requireEnrollment(userId, courseId);
+    const enrollment = await this.requireEnrollment(userId, courseId);
     const lesson = await this.learningRepository.findLesson(lessonId);
     if (!lesson || String(lesson.courseId) !== String(courseId)) {
       throw new AppError(404, 'LESSON_NOT_FOUND', 'Занятие не найдено');
@@ -42,13 +42,16 @@ class LearningService {
     const lessons = await this.learningRepository.findLessons(courseId);
     const completed = await this.learningRepository.findCompleted(userId, lessons.map((item) => item.id));
     let certificate = await this.learningRepository.findCertificate(userId, courseId);
-    if (lessons.length > 0 && completed.length === lessons.length && !certificate) {
-      certificate = await this.learningRepository.createCertificate({
-        userId,
-        courseId,
-        number: certificateNumber(this.clock.now(), this.idGenerator.newId()),
-        issuedAt: this.clock.now(),
-      });
+    if (lessons.length > 0 && completed.length === lessons.length) {
+      await this.learningRepository.completeEnrollment(enrollment);
+      if (!certificate) {
+        certificate = await this.learningRepository.createCertificate({
+          userId,
+          courseId,
+          number: certificateNumber(this.clock.now(), this.idGenerator.newId()),
+          issuedAt: this.clock.now(),
+        });
+      }
     }
     return {
       progress: progressDto(completed.length, lessons.length),

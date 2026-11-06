@@ -21,6 +21,7 @@ import {
   register,
   restoreSession,
 } from './api';
+import { CertificateVerificationPage, WebinarRoomPage } from './PublicPages';
 
 const formatLabels = {
   online: 'Онлайн',
@@ -28,7 +29,7 @@ const formatLabels = {
   mixed: 'Смешанный',
 };
 
-function App() {
+function PlatformApp() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [search, setSearch] = useState('');
   const [format, setFormat] = useState('');
@@ -160,6 +161,9 @@ function App() {
         certificate: issuedCertificate,
       });
       if (issuedCertificate) {
+        setEnrollments((items) => items.map((item) => (
+          item.courseId === learningPlan.course.id ? { ...item, status: 'completed' } : item
+        )));
         setCertificates((items) => (
           items.some((item) => item.id === issuedCertificate.id)
             ? items
@@ -261,7 +265,7 @@ function App() {
                 </time>
                 <h3>{webinar.title}</h3>
                 <p>{webinar.durationMinutes} минут · {webinar.courseTitle}</p>
-                <a href={webinar.meetingUrl} target="_blank" rel="noreferrer">Перейти к вебинару →</a>
+                <a href={`/webinars/${webinar.id}`}>Перейти к вебинару →</a>
               </article>
             ))}
           </div>
@@ -299,7 +303,9 @@ function App() {
           {loading && <p className="empty-state">Загружаем программы…</p>}
           {!loading && courses.length === 0 && <p className="empty-state">Программы не найдены.</p>}
           <div className="course-grid">
-            {courses.map((course) => (
+            {courses.map((course) => {
+              const courseEnrollment = enrollments.find((item) => item.courseId === course.id);
+              return (
               <article className="course-card" key={course.id}>
                 <div className="course-meta">
                   <span>{course.category}</span>
@@ -321,13 +327,14 @@ function App() {
                     type="button"
                     className="primary-button compact-button"
                     disabled={busyCourseId === course.id}
-                    onClick={() => toggleEnrollment(course)}
+                    onClick={() => (courseEnrollment?.status === 'completed' ? openLearning(course.id) : toggleEnrollment(course))}
                   >
-                    {enrollments.some((item) => item.courseId === course.id) ? 'Отменить запись' : 'Записаться'}
+                    {courseEnrollment?.status === 'completed' ? 'Курс пройден' : courseEnrollment ? 'Отменить запись' : 'Записаться'}
                   </button>
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -338,7 +345,10 @@ function App() {
                 <p className="eyebrow">Личный кабинет</p>
                 <h2>Мои программы</h2>
               </div>
-              <span className="enrollment-count">{enrollments.length} активных</span>
+            <span className="enrollment-count">
+              {enrollments.filter((item) => item.status === 'active').length} активных · {' '}
+              {enrollments.filter((item) => item.status === 'completed').length} завершённых
+            </span>
             </div>
             {enrollments.length === 0 ? (
               <p className="empty-state">Вы пока не записаны ни на одну программу.</p>
@@ -347,13 +357,15 @@ function App() {
                 {enrollments.map((enrollment) => (
                   <article key={enrollment.id} className="enrollment-card">
                     <div>
-                      <span>{enrollment.course.category}</span>
+                      <span>{enrollment.status === 'completed' ? 'Программа пройдена' : enrollment.course.category}</span>
                       <h3>{enrollment.course.title}</h3>
-                      <p>Запись от {new Date(enrollment.enrolledAt).toLocaleDateString('ru-RU')}</p>
+                      <p>{enrollment.status === 'completed' ? 'Сертификат выпущен и доступен ниже' : `Запись от ${new Date(enrollment.enrolledAt).toLocaleDateString('ru-RU')}`}</p>
                     </div>
                     <div className="enrollment-actions">
-                      <button type="button" className="primary-button compact-button" onClick={() => openLearning(enrollment.courseId)}>Продолжить обучение</button>
-                      <button type="button" className="secondary-button" onClick={() => toggleEnrollment(enrollment.course)}>Отменить</button>
+                      <button type="button" className="primary-button compact-button" onClick={() => openLearning(enrollment.courseId)}>
+                        {enrollment.status === 'completed' ? 'Посмотреть программу' : 'Продолжить обучение'}
+                      </button>
+                      {enrollment.status !== 'completed' && <button type="button" className="secondary-button" onClick={() => toggleEnrollment(enrollment.course)}>Отменить</button>}
                     </div>
                   </article>
                 ))}
@@ -373,7 +385,7 @@ function App() {
                   <h3>{certificate.courseTitle}</h3>
                   <code>{certificate.number}</code>
                   <p>Выдан {new Date(certificate.issuedAt).toLocaleDateString('ru-RU')}</p>
-                  <a href={`/api/certificates/verify/${certificate.number}`} target="_blank" rel="noreferrer">Проверить подлинность</a>
+                  <a href={`/certificates/verify/${certificate.number}`} target="_blank" rel="noreferrer">Проверить подлинность</a>
                 </article>
               ))}
             </div>
@@ -498,6 +510,16 @@ function App() {
       </footer>
     </div>
   );
+}
+
+function App() {
+  const certificateMatch = window.location.pathname.match(/^\/certificates\/verify\/([^/]+)\/?$/);
+  if (certificateMatch) return <CertificateVerificationPage number={decodeURIComponent(certificateMatch[1])} />;
+
+  const webinarMatch = window.location.pathname.match(/^\/webinars\/([^/]+)\/?$/);
+  if (webinarMatch) return <WebinarRoomPage webinarId={decodeURIComponent(webinarMatch[1])} />;
+
+  return <PlatformApp />;
 }
 
 export default App;
