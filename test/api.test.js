@@ -99,6 +99,9 @@ test('слабый пароль и неверный Content-Type возвращ�
     body: { email: 'weak@example.com', password: 'password' },
   });
   assert.equal(weakPassword.status, 400);
+  const weakPasswordBody = await weakPassword.json();
+  assert.equal(weakPasswordBody.error.code, 'VALIDATION_ERROR');
+  assert.ok(weakPasswordBody.error.details.some((detail) => detail.field === 'password'));
 
   const wrongType = await fetch(`${baseUrl}/auth/register`, {
     method: 'POST',

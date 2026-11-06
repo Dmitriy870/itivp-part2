@@ -18,7 +18,10 @@ function createErrorHandler({ securityLog }) {
     normalized = new AppError(400, 'INVALID_JSON', 'Некорректный JSON');
   } else if (error instanceof BaseError) {
     normalized = new AppError(500, 'DATABASE_ERROR', 'Ошибка при работе с базой данных');
-  } else if (Number.isInteger(error.status) && error.status >= 400 && error.status < 500) {
+  } else if (!(error instanceof AppError)
+    && Number.isInteger(error.status)
+    && error.status >= 400
+    && error.status < 500) {
     normalized = new AppError(
       error.status,
       error.code || 'REQUEST_ERROR',
