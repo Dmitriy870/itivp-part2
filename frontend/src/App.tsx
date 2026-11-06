@@ -53,10 +53,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      setEnrollments([]);
-      return;
-    }
+    if (!user) return;
     getMyEnrollments()
       .then((result) => setEnrollments(result.data))
       .catch(() => setMessage('Не удалось загрузить ваши программы'));
@@ -110,6 +107,7 @@ function App() {
   async function handleLogout() {
     await logout().catch(() => undefined);
     setUser(null);
+    setEnrollments([]);
     setMessage('Вы вышли из аккаунта.');
   }
 
