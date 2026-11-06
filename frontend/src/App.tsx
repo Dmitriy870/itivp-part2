@@ -1,14 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
+  Certificate,
   Course,
   Enrollment,
+  LearningPlan,
   User,
+  Webinar,
   cancelEnrollment,
+  completeLesson,
   enrollInCourse,
+  getCertificates,
   getCourses,
   getHealth,
+  getLearningPlan,
   getMyEnrollments,
+  getUpcomingWebinars,
   login,
   logout,
   register,
@@ -36,6 +43,9 @@ function App() {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [busyCourseId, setBusyCourseId] = useState('');
+  const [learningPlan, setLearningPlan] = useState<LearningPlan | null>(null);
+  const [webinars, setWebinars] = useState<Webinar[]>([]);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
 
   useEffect(() => {
     getHealth()
@@ -47,6 +57,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    getUpcomingWebinars()
+      .then((result) => setWebinars(result.data))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     restoreSession()
       .then(setUser)
       .catch(() => undefined);
@@ -54,8 +70,11 @@ function App() {
 
   useEffect(() => {
     if (!user) return;
-    getMyEnrollments()
-      .then((result) => setEnrollments(result.data))
+    Promise.all([getMyEnrollments(), getCertificates()])
+      .then(([enrollmentResult, certificateResult]) => {
+        setEnrollments(enrollmentResult.data);
+        setCertificates(certificateResult.data);
+      })
       .catch(() => setMessage('Не удалось загрузить ваши программы'));
   }, [user]);
 
@@ -108,7 +127,51 @@ function App() {
     await logout().catch(() => undefined);
     setUser(null);
     setEnrollments([]);
+    setCertificates([]);
     setMessage('Вы вышли из аккаунта.');
+  }
+
+  async function openLearning(courseId: string) {
+    setBusyCourseId(courseId);
+    try {
+      const result = await getLearningPlan(courseId);
+      setLearningPlan(result.data);
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Не удалось открыть программу');
+    } finally {
+      setBusyCourseId('');
+    }
+  }
+
+  async function markLessonComplete(lessonId: string) {
+    if (!learningPlan) return;
+    setBusyCourseId(lessonId);
+    try {
+      const result = await completeLesson(learningPlan.course.id, lessonId);
+      const issuedCertificate = result.data.certificate
+        ? { ...result.data.certificate, courseTitle: learningPlan.course.title }
+        : null;
+      setLearningPlan({
+        ...learningPlan,
+        lessons: learningPlan.lessons.map((lesson) => (
+          lesson.id === lessonId ? { ...lesson, completed: true } : lesson
+        )),
+        progress: result.data.progress,
+        certificate: issuedCertificate,
+      });
+      if (issuedCertificate) {
+        setCertificates((items) => (
+          items.some((item) => item.id === issuedCertificate.id)
+            ? items
+            : [issuedCertificate as Certificate, ...items]
+        ));
+        setMessage('Курс завершён — сертификат выпущен автоматически.');
+      }
+    } catch (error) {
+      setMessage(error instanceof ApiError ? error.message : 'Не удалось сохранить прогресс');
+    } finally {
+      setBusyCourseId('');
+    }
   }
 
   async function toggleEnrollment(course: Course) {
@@ -147,6 +210,7 @@ function App() {
         </a>
         <nav className="topbar-nav" aria-label="Основная навигация">
           <a href="#catalog">Каталог</a>
+          <a href="#webinars">Вебинары</a>
           {user && <a href="#my-courses">Мои программы</a>}
           <a href="#monitoring">Состояние</a>
         </nav>
@@ -177,6 +241,29 @@ function App() {
               <span className="status-dot" />
               API {health === 'online' ? 'работает' : health === 'offline' ? 'недоступен' : 'проверяется'}
             </div>
+          </div>
+        </section>
+
+        <section className="webinar-section" id="webinars">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Прямой эфир</p>
+              <h2>Ближайшие вебинары</h2>
+            </div>
+          </div>
+          <div className="webinar-grid">
+            {webinars.map((webinar) => (
+              <article className="webinar-card" key={webinar.id}>
+                <time dateTime={webinar.scheduledAt}>
+                  {new Date(webinar.scheduledAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
+                  {' · '}
+                  {new Date(webinar.scheduledAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                </time>
+                <h3>{webinar.title}</h3>
+                <p>{webinar.durationMinutes} минут · {webinar.courseTitle}</p>
+                <a href={webinar.meetingUrl} target="_blank" rel="noreferrer">Перейти к вебинару →</a>
+              </article>
+            ))}
           </div>
         </section>
 
@@ -264,11 +351,32 @@ function App() {
                       <h3>{enrollment.course.title}</h3>
                       <p>Запись от {new Date(enrollment.enrolledAt).toLocaleDateString('ru-RU')}</p>
                     </div>
-                    <button type="button" className="secondary-button" onClick={() => toggleEnrollment(enrollment.course)}>Отменить</button>
+                    <div className="enrollment-actions">
+                      <button type="button" className="primary-button compact-button" onClick={() => openLearning(enrollment.courseId)}>Продолжить обучение</button>
+                      <button type="button" className="secondary-button" onClick={() => toggleEnrollment(enrollment.course)}>Отменить</button>
+                    </div>
                   </article>
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {user && certificates.length > 0 && (
+          <section className="certificate-section" id="certificates">
+            <p className="eyebrow">Подтверждение квалификации</p>
+            <h2>Мои сертификаты</h2>
+            <div className="certificate-grid">
+              {certificates.map((certificate) => (
+                <article className="certificate-card" key={certificate.id}>
+                  <span>Сертификат</span>
+                  <h3>{certificate.courseTitle}</h3>
+                  <code>{certificate.number}</code>
+                  <p>Выдан {new Date(certificate.issuedAt).toLocaleDateString('ru-RU')}</p>
+                  <a href={`/api/certificates/verify/${certificate.number}`} target="_blank" rel="noreferrer">Проверить подлинность</a>
+                </article>
+              ))}
+            </div>
           </section>
         )}
 
@@ -345,6 +453,41 @@ function App() {
             <button type="button" className="primary-button" onClick={() => { toggleEnrollment(selectedCourse); setSelectedCourse(null); }}>
               {enrollments.some((item) => item.courseId === selectedCourse.id) ? 'Отменить запись' : 'Записаться на программу'}
             </button>
+          </article>
+        </div>
+      )}
+
+      {learningPlan && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setLearningPlan(null)}>
+          <article className="course-modal learning-modal" role="dialog" aria-modal="true" aria-labelledby="learning-title" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="modal-close" aria-label="Закрыть" onClick={() => setLearningPlan(null)}>×</button>
+            <p className="eyebrow">Учебный план</p>
+            <h2 id="learning-title">{learningPlan.course.title}</h2>
+            <div className="progress-summary">
+              <div><span style={{ width: `${learningPlan.progress.percent}%` }} /></div>
+              <strong>{learningPlan.progress.percent}%</strong>
+            </div>
+            <p className="progress-copy">Завершено {learningPlan.progress.completed} из {learningPlan.progress.total} занятий</p>
+            <div className="lesson-list">
+              {learningPlan.lessons.map((lesson) => (
+                <article className={lesson.completed ? 'lesson-row completed' : 'lesson-row'} key={lesson.id}>
+                  <span>{lesson.completed ? '✓' : lesson.position}</span>
+                  <div><h3>{lesson.title}</h3><p>{lesson.durationMinutes} минут</p></div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={lesson.completed || busyCourseId === lesson.id}
+                    onClick={() => markLessonComplete(lesson.id)}
+                  >{lesson.completed ? 'Пройдено' : 'Завершить'}</button>
+                </article>
+              ))}
+            </div>
+            {learningPlan.certificate && (
+              <div className="certificate-issued">
+                <strong>Сертификат выпущен</strong>
+                <code>{learningPlan.certificate.number}</code>
+              </div>
+            )}
           </article>
         </div>
       )}

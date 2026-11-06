@@ -1,5 +1,11 @@
 require('dotenv').config({ quiet: true });
-const { sequelize, User, Course } = require('../infrastructure/database/models');
+const {
+  sequelize,
+  User,
+  Course,
+  Lesson,
+  Webinar,
+} = require('../infrastructure/database/models');
 const passwordHasher = require('../infrastructure/security/passwordHasher');
 const { ROLES } = require('../domain/user/roles');
 const { validateEnvironment } = require('../infrastructure/config/environment');
@@ -104,6 +110,7 @@ async function seed() {
     },
   ];
 
+  const persistedCourses = [];
   for (const course of courses) {
     const defaults = {
       ...course,
@@ -112,8 +119,39 @@ async function seed() {
       createdBy: admin.id,
     };
     const existing = await Course.findOne({ where: { title: course.title } });
-    if (existing) await existing.update(defaults);
-    else await Course.create(defaults);
+    if (existing) {
+      await existing.update(defaults);
+      persistedCourses.push(existing);
+    } else {
+      persistedCourses.push(await Course.create(defaults));
+    }
+  }
+
+  const lessonTemplates = [
+    ['Вводный модуль и постановка целей', 45],
+    ['Основные инструменты и практический кейс', 90],
+    ['Итоговый проект и оценка компетенций', 120],
+  ];
+  for (const course of persistedCourses) {
+    for (const [index, template] of lessonTemplates.entries()) {
+      const [title, durationMinutes] = template;
+      await Lesson.findOrCreate({
+        where: { courseId: course.id, position: index + 1 },
+        defaults: { title, durationMinutes },
+      });
+    }
+  }
+
+  const webinarCourses = persistedCourses.filter((course) => course.webinarUrl).slice(0, 4);
+  for (const [index, course] of webinarCourses.entries()) {
+    await Webinar.findOrCreate({
+      where: { courseId: course.id, title: `Открытый вебинар: ${course.title}` },
+      defaults: {
+        scheduledAt: new Date(Date.UTC(2026, 11, 8 + (index * 7), 16, 0, 0)),
+        durationMinutes: 90,
+        meetingUrl: course.webinarUrl,
+      },
+    });
   }
 
   console.log('Тестовые пользователи и курсы созданы.');

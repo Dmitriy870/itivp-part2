@@ -25,6 +25,37 @@ export type Enrollment = {
   course: Course;
 };
 
+export type Certificate = {
+  id: string;
+  number: string;
+  issuedAt: string;
+  courseId: string;
+  courseTitle?: string;
+};
+
+export type LearningPlan = {
+  course: { id: string; title: string };
+  lessons: Array<{
+    id: string;
+    title: string;
+    position: number;
+    durationMinutes: number;
+    completed: boolean;
+  }>;
+  progress: { completed: number; total: number; percent: number };
+  certificate: Certificate | null;
+};
+
+export type Webinar = {
+  id: string;
+  title: string;
+  courseId: string;
+  courseTitle: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  meetingUrl: string;
+};
+
 type ApiErrorBody = {
   error?: { message?: string; details?: Array<{ field: string; message: string }> };
 };
@@ -116,4 +147,23 @@ export function enrollInCourse(courseId: string) {
 
 export function cancelEnrollment(courseId: string) {
   return request<void>(`/enrollments/${courseId}`, { method: 'DELETE' });
+}
+
+export function getLearningPlan(courseId: string) {
+  return request<{ data: LearningPlan }>(`/learning/${courseId}`);
+}
+
+export function completeLesson(courseId: string, lessonId: string) {
+  return request<{ data: Pick<LearningPlan, 'progress' | 'certificate'> }>(
+    `/learning/${courseId}/lessons/${lessonId}/complete`,
+    { method: 'POST' },
+  );
+}
+
+export function getCertificates() {
+  return request<{ data: Certificate[] }>('/certificates/me');
+}
+
+export function getUpcomingWebinars() {
+  return request<{ data: Webinar[] }>('/webinars');
 }

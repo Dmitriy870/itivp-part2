@@ -6,10 +6,14 @@ const createAuthRoutes = require('./routes/authRoutes');
 const createCourseRoutes = require('./routes/courseRoutes');
 const createUserRoutes = require('./routes/userRoutes');
 const createEnrollmentRoutes = require('./routes/enrollmentRoutes');
+const createLearningRoutes = require('./routes/learningRoutes');
+const createWebinarRoutes = require('./routes/webinarRoutes');
 const createAuthController = require('./controllers/authController');
 const createCourseController = require('./controllers/courseController');
 const createUserController = require('./controllers/userController');
 const createEnrollmentController = require('./controllers/enrollmentController');
+const createLearningController = require('./controllers/learningController');
+const createWebinarController = require('./controllers/webinarController');
 const createAuthenticate = require('./middleware/authenticate');
 const createRoleGuard = require('./middleware/roleGuard');
 const createRateLimits = require('./middleware/rateLimits');
@@ -41,6 +45,8 @@ function createApp(container) {
     course: createCourseController(services.course),
     user: createUserController(services.user),
     enrollment: createEnrollmentController(services.enrollment),
+    learning: createLearningController(services.learning),
+    webinar: createWebinarController(services.webinar),
   };
 
   app.disable('x-powered-by');
@@ -132,6 +138,14 @@ function createApp(container) {
     authenticate,
     perUserWriteLimiter: rateLimits.perUserWriteLimiter,
   }));
+  const learningRoutes = createLearningRoutes({
+    controller: controllers.learning,
+    authenticate,
+    perUserWriteLimiter: rateLimits.perUserWriteLimiter,
+  });
+  app.use('/learning', learningRoutes.learning);
+  app.use('/certificates', learningRoutes.certificates);
+  app.use('/webinars', createWebinarRoutes(controllers.webinar));
 
   app.use(notFound);
   app.use(errorHandler);

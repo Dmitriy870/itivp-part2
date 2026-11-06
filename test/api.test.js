@@ -17,6 +17,10 @@ const {
   Course,
   RefreshToken,
   Enrollment,
+  Lesson,
+  LessonProgress,
+  Certificate,
+  Webinar,
 } = require('../src/infrastructure/database/models');
 const { ROLES } = require('../src/domain/user/roles');
 
@@ -36,7 +40,11 @@ before(async () => {
 
 beforeEach(async () => {
   await RefreshToken.destroy({ where: {}, force: true });
+  await LessonProgress.destroy({ where: {}, force: true });
+  await Certificate.destroy({ where: {}, force: true });
+  await Webinar.destroy({ where: {}, force: true });
   await Enrollment.destroy({ where: {}, force: true });
+  await Lesson.destroy({ where: {}, force: true });
   await Course.destroy({ where: {}, force: true });
   await User.destroy({ where: {}, force: true });
   users = {
@@ -301,6 +309,43 @@ test('пользователь записывается на курс, види�
   });
   assert.equal(cancelled.status, 204);
   assert.equal(await Enrollment.count(), 0);
+});
+
+test('прогресс обучения выпускает публично проверяемый сертификат', async () => {
+  const userLogin = await loginAs('user@example.com', 'User123!');
+  const course = await Course.create({ ...coursePayload(), createdBy: users.admin.id });
+  const lessons = await Lesson.bulkCreate([
+    { courseId: course.id, title: 'Введение', position: 1, durationMinutes: 45 },
+    { courseId: course.id, title: 'Практика', position: 2, durationMinutes: 90 },
+  ]);
+  await Enrollment.create({ userId: users.user.id, courseId: course.id });
+
+  const initialPlan = await fetch(`${baseUrl}/learning/${course.id}`, {
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  const initialBody = await initialPlan.json();
+  assert.equal(initialPlan.status, 200);
+  assert.equal(initialBody.data.progress.percent, 0);
+
+  for (const lesson of lessons) {
+    const completed = await fetch(
+      `${baseUrl}/learning/${course.id}/lessons/${lesson.id}/complete`,
+      { method: 'POST', headers: { authorization: `Bearer ${userLogin.accessToken}` } },
+    );
+    assert.equal(completed.status, 200);
+  }
+
+  const certificates = await fetch(`${baseUrl}/certificates/me`, {
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  const certificate = (await certificates.json()).data[0];
+  assert.match(certificate.number, /^CERT-\d{4}-[A-F0-9]{10}$/);
+
+  const verification = await fetch(`${baseUrl}/certificates/verify/${certificate.number}`);
+  const verificationBody = await verification.json();
+  assert.equal(verification.status, 200);
+  assert.equal(verificationBody.data.valid, true);
+  assert.equal(verificationBody.data.studentEmail, users.user.email);
 });
 
 test('только admin управляет пользователями, секретные поля не выдаются', async () => {
