@@ -16,10 +16,10 @@ env:
   NODE_VERSION: "22"
 
 jobs:
-  verify:
-    name: Lint, test and build
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -45,16 +45,72 @@ jobs:
       - name: Lint frontend
         run: npm run lint --prefix frontend
 
+  test:
+    name: Test
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
       - name: Run API tests
         run: npm test
 
-      - name: Build frontend
-        run: npm run build
+  audit:
+    name: Security audit
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Audit production dependencies
         run: |
           npm audit --omit=dev
           npm --prefix frontend audit --omit=dev
+
+  build:
+    name: Build
+    needs: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build frontend
+        run: npm run build
 
       - name: Build backend image
         run: docker build --tag training-platform-api:${{ github.sha }} .
@@ -64,7 +120,7 @@ jobs:
 
   deploy:
     name: Deploy to Contabo VPS
-    needs: verify
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
@@ -119,7 +175,7 @@ jobs:
   notify:
     name: Notify Telegram
     if: always()
-    needs: [verify, deploy]
+    needs: [lint, test, audit, build, deploy]
     runs-on: ubuntu-latest
     env:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -128,10 +184,17 @@ jobs:
       - name: Send pipeline result
         if: ${{ env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
         env:
-          VERIFY_RESULT: ${{ needs.verify.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
-          if [ "$VERIFY_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
+          if [ "$LINT_RESULT" = "success" ] && \
+             [ "$TEST_RESULT" = "success" ] && \
+             [ "$AUDIT_RESULT" = "success" ] && \
+             [ "$BUILD_RESULT" = "success" ] && \
+             [ "$DEPLOY_RESULT" = "success" ]; then
             STATUS="✅ Production deployment succeeded"
           else
             STATUS="❌ Production deployment failed"
