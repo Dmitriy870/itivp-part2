@@ -5,9 +5,11 @@ const cookieParser = require('cookie-parser');
 const createAuthRoutes = require('./routes/authRoutes');
 const createCourseRoutes = require('./routes/courseRoutes');
 const createUserRoutes = require('./routes/userRoutes');
+const createEnrollmentRoutes = require('./routes/enrollmentRoutes');
 const createAuthController = require('./controllers/authController');
 const createCourseController = require('./controllers/courseController');
 const createUserController = require('./controllers/userController');
+const createEnrollmentController = require('./controllers/enrollmentController');
 const createAuthenticate = require('./middleware/authenticate');
 const createRoleGuard = require('./middleware/roleGuard');
 const createRateLimits = require('./middleware/rateLimits');
@@ -38,6 +40,7 @@ function createApp(container) {
     auth: createAuthController(services.auth),
     course: createCourseController(services.course),
     user: createUserController(services.user),
+    enrollment: createEnrollmentController(services.enrollment),
   };
 
   app.disable('x-powered-by');
@@ -122,6 +125,11 @@ function createApp(container) {
     authenticate,
     roleGuard,
     auditAdminAction,
+    perUserWriteLimiter: rateLimits.perUserWriteLimiter,
+  }));
+  app.use('/enrollments', createEnrollmentRoutes({
+    controller: controllers.enrollment,
+    authenticate,
     perUserWriteLimiter: rateLimits.perUserWriteLimiter,
   }));
 

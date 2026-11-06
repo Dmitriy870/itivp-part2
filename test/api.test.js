@@ -11,7 +11,13 @@ const assert = require('node:assert/strict');
 const bcrypt = require('bcrypt');
 const createApp = require('../src/presentation/http/app');
 const { createContainer } = require('../src/main/container');
-const { sequelize, User, Course, RefreshToken } = require('../src/infrastructure/database/models');
+const {
+  sequelize,
+  User,
+  Course,
+  RefreshToken,
+  Enrollment,
+} = require('../src/infrastructure/database/models');
 const { ROLES } = require('../src/domain/user/roles');
 
 const app = createApp(createContainer());
@@ -30,6 +36,7 @@ before(async () => {
 
 beforeEach(async () => {
   await RefreshToken.destroy({ where: {}, force: true });
+  await Enrollment.destroy({ where: {}, force: true });
   await Course.destroy({ where: {}, force: true });
   await User.destroy({ where: {}, force: true });
   users = {
@@ -256,6 +263,41 @@ test('CRUD курсов валидирует UUID, query и входные по�
     body: { ...coursePayload(), title: '<script>alert(1)</script>' },
   });
   assert.equal(htmlInput.status, 400);
+});
+
+test('пользователь записывается на курс, видит его в кабинете и отменяет запись', async () => {
+  const userLogin = await loginAs('user@example.com', 'User123!');
+  const course = await Course.create({ ...coursePayload(), createdBy: users.admin.id });
+
+  const enrolled = await fetch(`${baseUrl}/enrollments/${course.id}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  const enrolledBody = await enrolled.json();
+  assert.equal(enrolled.status, 201);
+  assert.equal(enrolledBody.data.courseId, course.id);
+  assert.equal(enrolledBody.data.course.title, course.title);
+
+  const duplicate = await fetch(`${baseUrl}/enrollments/${course.id}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  assert.equal(duplicate.status, 409);
+
+  const list = await fetch(`${baseUrl}/enrollments/me`, {
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  const listBody = await list.json();
+  assert.equal(list.status, 200);
+  assert.equal(listBody.data.length, 1);
+  assert.equal(listBody.data[0].course.id, course.id);
+
+  const cancelled = await fetch(`${baseUrl}/enrollments/${course.id}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${userLogin.accessToken}` },
+  });
+  assert.equal(cancelled.status, 204);
+  assert.equal(await Enrollment.count(), 0);
 });
 
 test('только admin управляет пользователями, секретные поля не выдаются', async () => {

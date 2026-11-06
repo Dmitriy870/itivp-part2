@@ -1,9 +1,11 @@
 const AuthService = require('../application/services/AuthService');
 const CourseService = require('../application/services/CourseService');
 const UserService = require('../application/services/UserService');
+const EnrollmentService = require('../application/services/EnrollmentService');
 const UserRepository = require('../infrastructure/database/repositories/UserRepository');
 const CourseRepository = require('../infrastructure/database/repositories/CourseRepository');
 const RefreshTokenRepository = require('../infrastructure/database/repositories/RefreshTokenRepository');
+const EnrollmentRepository = require('../infrastructure/database/repositories/EnrollmentRepository');
 const tokenProvider = require('../infrastructure/security/tokenProvider');
 const passwordHasher = require('../infrastructure/security/passwordHasher');
 const { securityLog } = require('../infrastructure/logging/securityLogger');
@@ -16,6 +18,7 @@ function createContainer() {
     user: new UserRepository(),
     course: new CourseRepository(),
     refreshToken: new RefreshTokenRepository(),
+    enrollment: new EnrollmentRepository(),
   };
 
   const services = {
@@ -30,6 +33,10 @@ function createContainer() {
     }),
     course: new CourseService({ courseRepository: repositories.course }),
     user: new UserService({ userRepository: repositories.user }),
+    enrollment: new EnrollmentService({
+      enrollmentRepository: repositories.enrollment,
+      courseRepository: repositories.course,
+    }),
   };
 
   return {

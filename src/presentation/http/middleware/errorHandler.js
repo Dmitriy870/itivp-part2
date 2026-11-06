@@ -51,7 +51,9 @@ function createErrorHandler({ securityLog }) {
         : (normalized.message || 'Внутренняя ошибка сервера'),
     },
   };
-  if (normalized.details && !isProduction) body.error.details = normalized.details;
+  if (normalized.details && normalized.code === 'VALIDATION_ERROR') {
+    body.error.details = normalized.details;
+  }
 
     res.status(status).json(body);
   };

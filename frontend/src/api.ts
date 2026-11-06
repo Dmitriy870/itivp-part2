@@ -17,9 +17,19 @@ export type User = {
   role: 'user' | 'moderator' | 'admin';
 };
 
-type ApiErrorBody = {
-  error?: { message?: string };
+export type Enrollment = {
+  id: string;
+  status: 'active' | 'completed' | 'cancelled';
+  courseId: string;
+  enrolledAt: string;
+  course: Course;
 };
+
+type ApiErrorBody = {
+  error?: { message?: string; details?: Array<{ field: string; message: string }> };
+};
+
+let accessToken = '';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -34,6 +44,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
   });
@@ -67,6 +78,9 @@ export function login(email: string, password: string) {
   return request<{ data: { user: User; accessToken: string } }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  }).then((result) => {
+    accessToken = result.data.accessToken;
+    return result;
   });
 }
 
@@ -75,4 +89,31 @@ export function register(email: string, password: string) {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
+}
+
+export function restoreSession() {
+  return request<{ data: { user: User; accessToken: string } }>('/auth/refresh', {
+    method: 'POST',
+  }).then((result) => {
+    accessToken = result.data.accessToken;
+    return result.data.user;
+  });
+}
+
+export function logout() {
+  return request<void>('/auth/logout', { method: 'POST' }).finally(() => {
+    accessToken = '';
+  });
+}
+
+export function getMyEnrollments() {
+  return request<{ data: Enrollment[] }>('/enrollments/me');
+}
+
+export function enrollInCourse(courseId: string) {
+  return request<{ data: Enrollment }>(`/enrollments/${courseId}`, { method: 'POST' });
+}
+
+export function cancelEnrollment(courseId: string) {
+  return request<void>(`/enrollments/${courseId}`, { method: 'DELETE' });
 }
