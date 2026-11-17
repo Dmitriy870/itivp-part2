@@ -6,12 +6,14 @@
 
 - приложение и API: <http://207.180.199.246:8080>;
 - health-check API: <http://207.180.199.246:8080/api/health>;
-- Grafana: <http://207.180.199.246:3002>;
+- Grafana: <http://207.180.199.246:3002> (дашборд `Training Platform — Production Overview`);
 - Uptime Kuma: <http://207.180.199.246:3001>;
 - публичная status page: <http://207.180.199.246:3001/status/training-platform>;
-- Dockhand: <https://207.180.199.246:9444>.
+- Sentry: <https://training-platform-0x.sentry.io>;
+- Dockhand: <https://207.180.199.246:9444>;
+- Telegram для уведомлений: [@Dimtriy456](https://t.me/Dimtriy456).
 
-UptimeRobot и Sentry подключаются как внешние сервисы; их публичные ссылки добавляются после создания проектов и status page.
+Сервисы администрирования закрыты авторизацией. Пароли, DSN, SSH-ключи и токен Telegram-бота не хранятся в Git и передаются через локальный production-env и GitHub Actions Secrets.
 
 ## Возможности
 
@@ -49,7 +51,7 @@ UptimeRobot и Sentry подключаются как внешние серви�
 - Postman и `node:test`.
 - React, TypeScript и Vite;
 - Prometheus, Grafana, Loki, Alloy, cAdvisor и node-exporter;
-- GitHub Actions, Sentry и UptimeRobot.
+- GitHub Actions, Sentry, Uptime Kuma и Telegram Bot API.
 
 ## Быстрый запуск
 
@@ -98,6 +100,8 @@ Workflow [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) зап
 
 Необходимые GitHub Secrets: `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 
+CI/CD реализован как последовательность независимых jobs: `lint` → `test` → `audit` → `build` → `deploy`. Job `notify` запускается всегда и отправляет в Telegram итоговый статус пайплайна. Деплой выполняется без ручного вмешательства: release архивируется, передаётся на Contabo VPS по SSH, разворачивается Docker Compose и принимается только после успешных health-check frontend и API.
+
 ## Наблюдаемость
 
 - `/api/metrics` экспортирует Prometheus-метрики запросов, задержки, памяти и uptime процесса;
@@ -107,6 +111,22 @@ Workflow [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) зап
 - Pino редактирует пароли, JWT, cookies и заголовки авторизации до записи логов;
 - Sentry включается переменными `SENTRY_DSN` и `VITE_SENTRY_DSN`;
 - защищённый `POST /api/debug/error` позволяет один раз подтвердить доставку тестовой ошибки в Sentry.
+
+Uptime Kuma проверяет frontend, API и Grafana с интервалом 60 секунд. Grafana отображает доступность API, частоту запросов, p95 задержки, ошибки 5xx, CPU и память VPS, ресурсы контейнеров и централизованные логи. Правила Grafana отправляют критические события в Telegram.
+
+## Почему выбран этот стек
+
+- **Contabo VPS** уже доступен для проекта и позволяет развернуть frontend, backend, PostgreSQL и наблюдаемость в одной воспроизводимой Docker-инфраструктуре.
+- **GitHub Actions** встроен в репозиторий и обеспечивает проверку, сборку и автоматический деплой при каждом push в `ipr22`.
+- **Prometheus и Grafana** дают собственное хранение метрик, единый дашборд ресурсов и управляемые правила оповещений.
+- **Loki и Alloy** централизуют Docker-логи без передачи журналов стороннему провайдеру.
+- **Uptime Kuma** независимо проверяет внешнюю доступность сервисов и предоставляет публичную status page.
+- **Sentry** связывает production-ошибки backend и frontend с релизом и контекстом выполнения.
+- **Telegram Bot API** используется как единый канал уведомлений CI/CD и мониторинга.
+
+## Ограничения production-стенда
+
+Учебный стенд опубликован по внешнему IPv4 и нестандартным портам. Для коммерческой эксплуатации необходимо привязать домен, завершить TLS на reverse proxy, закрыть административные порты сетевым firewall/VPN, настроить резервное копирование PostgreSQL и вынести секреты в специализированное хранилище.
 
 ## Команды
 
