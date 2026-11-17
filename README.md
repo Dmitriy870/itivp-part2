@@ -11,7 +11,8 @@
 - публичная status page: <http://207.180.199.246:3001/status/training-platform>;
 - Sentry: <https://training-platform-0x.sentry.io>;
 - Dockhand: <https://207.180.199.246:9444>;
-- Telegram для уведомлений: [@Dimtriy456](https://t.me/Dimtriy456).
+- Telegram-бот мониторинга: [@itivp_training_monitor_bot](https://t.me/itivp_training_monitor_bot) (`Training Platform Monitor`, ID `8766147731`);
+- контакт для уведомлений: [@Dimtriy456](https://t.me/Dimtriy456).
 
 Сервисы администрирования закрыты авторизацией. Пароли, DSN, SSH-ключи и токен Telegram-бота не хранятся в Git и передаются через локальный production-env и GitHub Actions Secrets.
 
