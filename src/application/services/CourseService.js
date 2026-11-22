@@ -1,6 +1,6 @@
 const AppError = require('../../shared/errors/AppError');
 const { toCourseDto } = require('../dto/courseDto');
-const { ROLES } = require('../../domain/user/roles');
+const { canManageCourse } = require('../../domain/course/coursePermissions');
 
 class CourseService {
   constructor({ courseRepository }) {
@@ -20,9 +20,11 @@ class CourseService {
     };
   }
 
-  async getById(id) {
+  async getById(id, actor) {
     const course = await this.courseRepository.findDetailedById(id);
-    if (!course) throw new AppError(404, 'COURSE_NOT_FOUND', 'Курс не найден');
+    if (!course || (!course.published && !canManageCourse(course, actor))) {
+      throw new AppError(404, 'COURSE_NOT_FOUND', 'Курс не найден');
+    }
     return toCourseDto(course);
   }
 
@@ -35,9 +37,7 @@ class CourseService {
     const course = await this.courseRepository.findById(id);
     if (!course) throw new AppError(404, 'COURSE_NOT_FOUND', 'Курс не найден');
 
-    const isAuthor = String(course.createdBy) === String(actor.id);
-    const isAdmin = actor.role === ROLES.ADMIN;
-    if (!isAuthor && !isAdmin) {
+    if (!canManageCourse(course, actor)) {
       throw new AppError(403, 'COURSE_UPDATE_FORBIDDEN', 'Изменять курс может только автор или администратор');
     }
 

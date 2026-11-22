@@ -12,7 +12,13 @@ function createCourseRoutes({ controller, authenticate, roleGuard, perUserWriteL
   const router = express.Router();
 
   router.get('/', validate(courseQuerySchema, 'query'), controller.list);
-  router.get('/:id', validate(courseIdSchema, 'params'), controller.getById);
+  router.get('/mine', authenticate, validate(courseQuerySchema, 'query'), controller.listMine);
+  router.get(
+    '/:id',
+    (req, res, next) => (req.get('authorization') ? authenticate(req, res, next) : next()),
+    validate(courseIdSchema, 'params'),
+    controller.getById,
+  );
   router.post(
   '/',
   requireJson,

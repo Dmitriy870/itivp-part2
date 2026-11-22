@@ -92,7 +92,7 @@ services:
 
   web:
     build:
-      context: frontend
+      context: client
       dockerfile: Dockerfile
       args:
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}

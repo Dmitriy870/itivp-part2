@@ -1,11 +1,20 @@
 function createCourseController(courseService) {
   async function list(req, res) {
-  const result = await courseService.list(req.validated.query);
-  res.json({ data: result.items, pagination: result.pagination });
+    const filters = req.validated.query;
+    if (filters.published === false) {
+      return res.json({ data: [], pagination: { page: filters.page, limit: filters.limit, total: 0, pages: 0 } });
+    }
+    const result = await courseService.list({ ...filters, published: true });
+    return res.json({ data: result.items, pagination: result.pagination });
+  }
+
+  async function listMine(req, res) {
+    const result = await courseService.list({ ...req.validated.query, createdBy: req.user.id });
+    res.json({ data: result.items, pagination: result.pagination });
   }
 
   async function getById(req, res) {
-  const course = await courseService.getById(req.validated.params.id);
+  const course = await courseService.getById(req.validated.params.id, req.user);
   res.json({ data: course });
   }
 
@@ -28,7 +37,7 @@ function createCourseController(courseService) {
   res.status(204).send();
   }
 
-  return { list, getById, create, update, remove };
+  return { list, listMine, getById, create, update, remove };
 }
 
 module.exports = createCourseController;

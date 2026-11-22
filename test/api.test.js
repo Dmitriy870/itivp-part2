@@ -276,6 +276,70 @@ test('CRUD курсов валидирует UUID, query и входные по�
   assert.equal(htmlInput.status, 400);
 });
 
+test('черновики скрыты из публичного каталога, но доступны автору и администратору', async () => {
+  const draft = await Course.create({ ...coursePayload(), published: false, createdBy: users.user.id });
+  await Course.create({ ...coursePayload(), title: 'Чужой черновик', published: false, createdBy: users.admin.id });
+  const publicCatalog = await fetch(`${baseUrl}/courses`);
+  assert.deepEqual((await publicCatalog.json()).data, []);
+  const readDraft = (headers) => fetch(`${baseUrl}/courses/${draft.id}`, { headers });
+  const authorize = async (email, password) => ({ authorization: `Bearer ${(await loginAs(email, password)).accessToken}` });
+  const author = await authorize('user@example.com', 'User123!');
+  const moderator = await authorize('moderator@example.com', 'Moderator123!');
+  const admin = await authorize('admin@example.com', 'Admin123!');
+
+  assert.equal((await readDraft()).status, 404);
+  assert.equal((await readDraft(moderator)).status, 404);
+  assert.equal((await readDraft(author)).status, 200);
+  assert.equal((await readDraft(admin)).status, 200);
+  assert.equal((await fetch(`${baseUrl}/courses/mine`)).status, 401);
+  const mine = await fetch(`${baseUrl}/courses/mine`, { headers: author });
+  assert.deepEqual((await mine.json()).data.map(({ id }) => id), [draft.id]);
+});
+
+test('автор планирует и отменяет вебинар, ссылка открывается только в окно эфира', async () => {
+  const author = await loginAs('user@example.com', 'User123!');
+  const foreign = await loginAs('moderator@example.com', 'Moderator123!');
+  const course = await Course.create({ ...coursePayload(), createdBy: users.user.id });
+  const otherCourse = await Course.create({ ...coursePayload(), createdBy: users.user.id });
+  const path = `/webinars/manage/${course.id}`;
+  const webinar = {
+    title: 'Введение в программу',
+    scheduledAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+    durationMinutes: 45,
+    meetingUrl: 'https://example.com/live',
+  };
+  const create = (token, body) => jsonRequest(path, { method: 'POST', token, body });
+  assert.equal((await create(foreign.accessToken, webinar)).status, 403);
+  assert.equal((await create(author.accessToken, { ...webinar, scheduledAt: '2020-01-01T10:00:00Z' })).status, 400);
+  const created = await create(author.accessToken, webinar);
+  assert.equal(created.status, 201);
+  const { id } = (await created.json()).data;
+  const publicPath = `${baseUrl}/webinars/${id}`;
+  const list = await fetch(`${baseUrl}/webinars?courseId=${course.id}`);
+  assert.equal((await list.json()).data[0].meetingUrl, null);
+  const before = await fetch(publicPath);
+  assert.equal((await before.json()).data.meetingUrl, null);
+
+  const updated = await jsonRequest(`${path}/${id}`, {
+    method: 'PUT',
+    token: author.accessToken,
+    body: { ...webinar, scheduledAt: new Date(Date.now() + 5 * 60_000).toISOString() },
+  });
+  assert.equal(updated.status, 200);
+  const live = await fetch(publicPath);
+  assert.equal((await live.json()).data.meetingUrl, webinar.meetingUrl);
+
+  const headers = { authorization: `Bearer ${author.accessToken}` };
+  await course.update({ published: false });
+  assert.equal((await fetch(publicPath)).status, 404);
+  const managed = await fetch(`${baseUrl}${path}`, { headers });
+  assert.equal((await managed.json()).data[0].id, id);
+  assert.equal((await fetch(`${baseUrl}/webinars/manage/${otherCourse.id}/${id}`, { method: 'DELETE', headers })).status, 404);
+  assert.equal((await fetch(`${baseUrl}${path}/${id}`, { method: 'DELETE', headers })).status, 204);
+  await course.update({ published: true });
+  assert.equal((await fetch(publicPath)).status, 404);
+});
+
 test('пользователь записывается на курс, видит его в кабинете и отменяет запись', async () => {
   const userLogin = await loginAs('user@example.com', 'User123!');
   const course = await Course.create({ ...coursePayload(), createdBy: users.admin.id });

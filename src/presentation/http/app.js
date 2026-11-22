@@ -145,7 +145,11 @@ function createApp(container) {
   });
   app.use('/learning', learningRoutes.learning);
   app.use('/certificates', learningRoutes.certificates);
-  app.use('/webinars', createWebinarRoutes(controllers.webinar));
+  app.use('/webinars', createWebinarRoutes({
+    controller: controllers.webinar,
+    authenticate,
+    perUserWriteLimiter: rateLimits.perUserWriteLimiter,
+  }));
 
   app.use(notFound);
   app.use(errorHandler);

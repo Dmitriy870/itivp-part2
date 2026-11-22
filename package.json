@@ -9,8 +9,8 @@
     "db:seed": "node src/main/seed.js",
     "lint": "eslint src test",
     "test": "node --test --test-concurrency=1",
-    "test:frontend": "npm --prefix frontend test",
-    "build": "npm --prefix frontend run build",
+    "test:frontend": "npm --prefix client test",
+    "build": "npm --prefix client run build",
     "verify": "npm run lint && npm test && npm run build"
   },
   "keywords": [],

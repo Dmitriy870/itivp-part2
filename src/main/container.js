@@ -49,7 +49,11 @@ function createContainer() {
       clock,
       idGenerator,
     }),
-    webinar: new WebinarService({ webinarRepository: repositories.webinar, clock }),
+    webinar: new WebinarService({
+      webinarRepository: repositories.webinar,
+      courseRepository: repositories.course,
+      clock,
+    }),
   };
 
   return {

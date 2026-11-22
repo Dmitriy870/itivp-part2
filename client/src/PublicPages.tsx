@@ -1,19 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router';
 import {
   VerifiedCertificate,
-  Webinar,
-  getUpcomingWebinars,
+  ApiError,
+  getWebinar,
   verifyCertificate,
 } from './api';
+import RequestError from './RequestError';
+import { useResource } from './useResource';
+import { formatWebinarDate, webinarWindow } from './webinars/webinarTime';
 
 function PublicHeader() {
   return (
     <header className="public-header">
-      <a className="brand" href="/" aria-label="ПрофКурс — на главную">
+      <Link className="brand" to="/" aria-label="ПрофКурс — на главную">
         <span className="brand-mark">П</span>
         <span>ПрофКурс</span>
-      </a>
-      <a className="back-link" href="/">← Вернуться на платформу</a>
+      </Link>
+      <Link className="back-link" to="/">← Вернуться на платформу</Link>
     </header>
   );
 }
@@ -68,50 +72,41 @@ export function CertificateVerificationPage({ number }: { number: string }) {
 }
 
 export function WebinarRoomPage({ webinarId }: { webinarId: string }) {
-  const [webinar, setWebinar] = useState<Webinar | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading');
-  const [roomIsOpen, setRoomIsOpen] = useState(false);
+  const load = useCallback((signal: AbortSignal) => getWebinar(webinarId, signal), [webinarId]);
+  const { state, reload } = useResource(load);
+  const [now, setNow] = useState(Date.now);
+  const webinar = state.status === 'ready' ? state.data.data : undefined;
+  const timing = webinar && webinarWindow(webinar.scheduledAt, webinar.durationMinutes);
+  const opensAt = timing?.opensAt;
+  const endsAt = timing?.endsAt;
+  const hasMeetingLink = Boolean(webinar?.meetingUrl);
 
   useEffect(() => {
-    getUpcomingWebinars()
-      .then((result) => {
-        const found = result.data.find((item) => item.id === webinarId) || null;
-        setWebinar(found);
-        setStatus(found ? 'ready' : 'missing');
-      })
-      .catch(() => setStatus('missing'));
-  }, [webinarId]);
-
-  useEffect(() => {
-    if (!webinar) return undefined;
-    const opensAt = new Date(webinar.scheduledAt).getTime() - (10 * 60 * 1000);
-    const updateRoomState = () => setRoomIsOpen(Date.now() >= opensAt);
-    updateRoomState();
-    const timer = window.setInterval(updateRoomState, 30_000);
+    if (opensAt === undefined || endsAt === undefined) return;
+    const timer = window.setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (!hasMeetingLink && current >= opensAt && current < endsAt) reload();
+    }, 30_000);
     return () => window.clearInterval(timer);
-  }, [webinar]);
+  }, [opensAt, endsAt, hasMeetingLink, reload]);
 
-  if (status === 'loading') {
-    return <div className="public-page"><PublicHeader /><main className="verification-main"><p className="public-loading">Открываем комнату вебинара…</p></main></div>;
+  if (!webinar || !timing) {
+    const missing = state.status === 'error' && state.error instanceof ApiError && [400, 404].includes(state.error.status);
+    return <div className="public-page"><PublicHeader /><main className="verification-main">
+      {state.status === 'loading' && <p className="public-loading" role="status">Открываем комнату вебинара…</p>}
+      {missing && <section className="verification-card invalid-card">
+        <h1>Вебинар не найден</h1>
+        <p className="verification-lead">Возможно, вебинар отменён.</p>
+        <Link className="primary-button" to="/#webinars">Посмотреть расписание</Link>
+      </section>}
+      {state.status === 'error' && !missing && <RequestError error={state.error} message="Не удалось открыть вебинар." retry={reload} />}
+    </main></div>;
   }
 
-  if (status === 'missing' || !webinar) {
-    return (
-      <div className="public-page">
-        <PublicHeader />
-        <main className="verification-main">
-          <section className="verification-card invalid-card">
-            <div className="verification-status"><span>×</span><strong>Вебинар не найден</strong></div>
-            <h1>Событие недоступно</h1>
-            <p className="verification-lead">Возможно, вебинар был перенесён или завершён.</p>
-            <a className="primary-button" href="/#webinars">Посмотреть расписание</a>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  const scheduledAt = new Date(webinar.scheduledAt);
+  const joinUrl = webinar.meetingUrl?.startsWith('https://') && now < timing.endsAt ? webinar.meetingUrl : null;
+  const ended = now >= timing.endsAt;
+  const stageTitle = ended ? 'Эфир завершён' : joinUrl ? 'Можно подключиться' : 'Эфир ещё не начался';
 
   return (
     <div className="public-page webinar-room-page">
@@ -121,28 +116,23 @@ export function WebinarRoomPage({ webinarId }: { webinarId: string }) {
           <div>
             <p className="eyebrow">Комната прямого эфира</p>
             <h1>{webinar.title}</h1>
-            <p>{webinar.courseTitle}</p>
+            <p><Link to={`/courses/${webinar.courseId}`}>{webinar.courseTitle}</Link></p>
           </div>
-          <div className="broadcast-state"><span />{roomIsOpen ? 'Комната открыта' : 'Запланирован'}</div>
+          <div className="broadcast-state"><span />{ended ? 'Завершён' : joinUrl ? 'Комната открыта' : 'Запланирован'}</div>
         </section>
         <section className="webinar-stage">
           <div className="stage-placeholder">
             <span className="play-mark">▶</span>
-            <h2>{roomIsOpen ? 'Эфир готов к запуску' : 'Эфир ещё не начался'}</h2>
-            <p>{roomIsOpen ? 'Это демонстрационная комната вебинара.' : 'Комната откроется за 10 минут до начала.'}</p>
+            <h2>{stageTitle}</h2>
+            {joinUrl && <p>Эфир откроется на площадке организатора.</p>}
+            {!joinUrl && !ended && <p>Ссылка откроется за 10 минут до начала.</p>}
           </div>
           <aside className="webinar-sidebar">
             <p className="eyebrow">Когда</p>
-            <strong>{scheduledAt.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</strong>
-            <span>{scheduledAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} · {webinar.durationMinutes} минут</span>
-            <hr />
-            <p className="eyebrow">В программе</p>
-            <ol>
-              <li>Ключевые понятия и актуальные практики</li>
-              <li>Разбор профессионального кейса</li>
-              <li>Ответы на вопросы слушателей</li>
-            </ol>
-            <button className="primary-button" type="button" disabled={!roomIsOpen}>{roomIsOpen ? 'Подключиться к эфиру' : 'Ожидаем начало'}</button>
+            <strong>{formatWebinarDate(webinar.scheduledAt)}</strong>
+            <span>{webinar.durationMinutes} минут</span>
+            {joinUrl && <a className="primary-button" href={joinUrl} target="_blank" rel="noreferrer">Подключиться к эфиру</a>}
+            {!joinUrl && !ended && <button className="secondary-button" type="button" onClick={reload}>Обновить статус</button>}
           </aside>
         </section>
       </main>

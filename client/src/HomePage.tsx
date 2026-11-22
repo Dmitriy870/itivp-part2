@@ -1,11 +1,11 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import {
   ApiError,
   Certificate,
   Course,
   Enrollment,
   LearningPlan,
-  User,
   Webinar,
   cancelEnrollment,
   completeLesson,
@@ -16,33 +16,24 @@ import {
   getLearningPlan,
   getMyEnrollments,
   getUpcomingWebinars,
-  login,
-  logout,
   register,
-  restoreSession,
 } from './api';
-import { CertificateVerificationPage, WebinarRoomPage } from './PublicPages';
+import { formatLabels } from './courses/courseFields';
+import { useSession } from './sessionContext';
 
-const formatLabels = {
-  online: 'Онлайн',
-  webinar: 'Вебинар',
-  mixed: 'Смешанный',
-};
-
-function PlatformApp() {
+export default function HomePage() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [search, setSearch] = useState('');
-  const [format, setFormat] = useState('');
   const [loading, setLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState(false);
   const [message, setMessage] = useState('');
   const [health, setHealth] = useState<'checking' | 'online' | 'offline'>('checking');
   const [uptime, setUptime] = useState(0);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [user, setUser] = useState<User | null>(null);
+  const { user, checking, signIn, signOut } = useSession();
+  const [authBusy, setAuthBusy] = useState(false);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [busyCourseId, setBusyCourseId] = useState('');
   const [learningPlan, setLearningPlan] = useState<LearningPlan | null>(null);
   const [webinars, setWebinars] = useState<Webinar[]>([]);
@@ -64,36 +55,26 @@ function PlatformApp() {
   }, []);
 
   useEffect(() => {
-    restoreSession()
-      .then(setUser)
-      .catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
     if (!user) return;
+    let active = true;
     Promise.all([getMyEnrollments(), getCertificates()])
       .then(([enrollmentResult, certificateResult]) => {
+        if (!active) return;
         setEnrollments(enrollmentResult.data);
         setCertificates(certificateResult.data);
       })
-      .catch(() => setMessage('Не удалось загрузить ваши программы'));
+      .catch(() => { if (active) setMessage('Не удалось загрузить ваши программы'); });
+    return () => { active = false; };
   }, [user]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setLoading(true);
-      getCourses(search, format)
-        .then((result) => {
-          setCourses(result.data);
-          setMessage('');
-        })
-        .catch((error: unknown) => {
-          setMessage(error instanceof Error ? error.message : 'Не удалось загрузить курсы');
-        })
-        .finally(() => setLoading(false));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [search, format]);
+    const controller = new AbortController();
+    getCourses('', '', { limit: 9, signal: controller.signal })
+      .then((result) => { if (!controller.signal.aborted) setCourses(result.data); })
+      .catch(() => { if (!controller.signal.aborted) setCatalogError(true); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, []);
 
   const totalHours = useMemo(
     () => courses.reduce((sum, course) => sum + course.durationHours, 0),
@@ -102,6 +83,7 @@ function PlatformApp() {
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault();
+    setAuthBusy(true);
     setMessage('');
     try {
       if (authMode === 'register') {
@@ -114,19 +96,19 @@ function PlatformApp() {
         setAuthMode('login');
         setMessage('Регистрация завершена. Теперь войдите в аккаунт.');
       } else {
-        const result = await login(email, password);
-        setUser(result.data.user);
+        const signedInUser = await signIn(email, password);
         setPassword('');
-        setMessage(`Добро пожаловать, ${result.data.user.email}`);
+        setMessage(`Добро пожаловать, ${signedInUser.email}`);
       }
     } catch (error) {
       setMessage(error instanceof ApiError ? error.message : 'Не удалось выполнить операцию');
+    } finally {
+      setAuthBusy(false);
     }
   }
 
   async function handleLogout() {
-    await logout().catch(() => undefined);
-    setUser(null);
+    await signOut().catch(() => undefined);
     setEnrollments([]);
     setCertificates([]);
     setMessage('Вы вышли из аккаунта.');
@@ -213,7 +195,8 @@ function PlatformApp() {
           <span>ПрофКурс</span>
         </a>
         <nav className="topbar-nav" aria-label="Основная навигация">
-          <a href="#catalog">Каталог</a>
+          <Link to="/courses">Каталог</Link>
+          {user && <Link to="/courses/mine">Мои курсы</Link>}
           <a href="#webinars">Вебинары</a>
           {user && <a href="#my-courses">Мои программы</a>}
           <a href="#monitoring">Состояние</a>
@@ -235,7 +218,7 @@ function PlatformApp() {
               Выбирайте программы профессиональной переподготовки, проходите обучение
               онлайн или очно и подтверждайте компетенции официальным сертификатом.
             </p>
-            <a className="primary-button" href="#catalog">Выбрать программу</a>
+            <Link className="primary-button" to="/courses">Выбрать программу</Link>
           </div>
           <div className="hero-card" aria-label="Показатели каталога">
             <span className="hero-card-label">Доступно сейчас</span>
@@ -265,7 +248,7 @@ function PlatformApp() {
                 </time>
                 <h3>{webinar.title}</h3>
                 <p>{webinar.durationMinutes} минут · {webinar.courseTitle}</p>
-                <a href={`/webinars/${webinar.id}`}>Перейти к вебинару →</a>
+                  <Link to={`/webinars/${webinar.id}`}>Перейти к вебинару →</Link>
               </article>
             ))}
           </div>
@@ -279,29 +262,12 @@ function PlatformApp() {
               <p className="eyebrow">Каталог обучения</p>
               <h2>Программы переподготовки</h2>
             </div>
-            <div className="filters">
-              <label>
-                <span className="sr-only">Поиск курса</span>
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Поиск по названию"
-                />
-              </label>
-              <label>
-                <span className="sr-only">Формат обучения</span>
-                <select value={format} onChange={(event) => setFormat(event.target.value)}>
-                  <option value="">Все форматы</option>
-                  <option value="online">Онлайн</option>
-                  <option value="webinar">Вебинар</option>
-                  <option value="mixed">Смешанный</option>
-                </select>
-              </label>
-            </div>
+            <Link className="secondary-button" to="/courses">Весь каталог</Link>
           </div>
 
           {loading && <p className="empty-state">Загружаем программы…</p>}
-          {!loading && courses.length === 0 && <p className="empty-state">Программы не найдены.</p>}
+          {catalogError && <p className="empty-state" role="alert">Не удалось загрузить программы.</p>}
+          {!loading && !catalogError && courses.length === 0 && <p className="empty-state">Программы не найдены.</p>}
           <div className="course-grid">
             {courses.map((course) => {
               const courseEnrollment = enrollments.find((item) => item.courseId === course.id);
@@ -322,7 +288,7 @@ function PlatformApp() {
                   {course.webinarUrl && <span className="webinar-badge">Вебинары</span>}
                 </div>
                 <div className="course-actions">
-                  <button type="button" className="secondary-button" onClick={() => setSelectedCourse(course)}>Подробнее</button>
+                  <Link className="secondary-button" to={`/courses/${course.id}`}>Подробнее</Link>
                   <button
                     type="button"
                     className="primary-button compact-button"
@@ -434,7 +400,7 @@ function PlatformApp() {
             {authMode === 'register' && (
               <p className="password-hint">Минимум 8 символов: заглавная и строчная буквы, цифра и специальный символ.</p>
             )}
-            <button className="primary-button" type="submit">
+            <button className="primary-button" type="submit" disabled={checking || authBusy}>
               {authMode === 'login' ? 'Войти' : 'Создать аккаунт'}
             </button>
             {message && <p className="form-message" role="status">{message}</p>}
@@ -448,26 +414,6 @@ function PlatformApp() {
           <strong>Prometheus · Grafana · Loki</strong>
         </section>
       </main>
-
-      {selectedCourse && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedCourse(null)}>
-          <article className="course-modal" role="dialog" aria-modal="true" aria-labelledby="course-title" onClick={(event) => event.stopPropagation()}>
-            <button type="button" className="modal-close" aria-label="Закрыть" onClick={() => setSelectedCourse(null)}>×</button>
-            <p className="eyebrow">{selectedCourse.category}</p>
-            <h2 id="course-title">{selectedCourse.title}</h2>
-            <p>{selectedCourse.description}</p>
-            <dl className="course-details">
-              <div><dt>Формат</dt><dd>{formatLabels[selectedCourse.format]}</dd></div>
-              <div><dt>Объём</dt><dd>{selectedCourse.durationHours} часов</dd></div>
-              <div><dt>Документ</dt><dd>{selectedCourse.certificateIssued ? 'Сертификат' : 'Не предусмотрен'}</dd></div>
-              <div><dt>Стоимость</dt><dd>{selectedCourse.price.toLocaleString('ru-RU')} BYN</dd></div>
-            </dl>
-            <button type="button" className="primary-button" onClick={() => { toggleEnrollment(selectedCourse); setSelectedCourse(null); }}>
-              {enrollments.some((item) => item.courseId === selectedCourse.id) ? 'Отменить запись' : 'Записаться на программу'}
-            </button>
-          </article>
-        </div>
-      )}
 
       {learningPlan && (
         <div className="modal-backdrop" role="presentation" onClick={() => setLearningPlan(null)}>
@@ -511,18 +457,6 @@ function PlatformApp() {
     </div>
   );
 }
-
-function App() {
-  const certificateMatch = window.location.pathname.match(/^\/certificates\/verify\/([^/]+)\/?$/);
-  if (certificateMatch) return <CertificateVerificationPage number={decodeURIComponent(certificateMatch[1])} />;
-
-  const webinarMatch = window.location.pathname.match(/^\/webinars\/([^/]+)\/?$/);
-  if (webinarMatch) return <WebinarRoomPage webinarId={decodeURIComponent(webinarMatch[1])} />;
-
-  return <PlatformApp />;
-}
-
-export default App;
 
 function validatePassword(value: string) {
   if (value.length < 8) return 'Пароль должен содержать минимум 8 символов.';
