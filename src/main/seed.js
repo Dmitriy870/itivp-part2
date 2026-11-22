@@ -17,15 +17,38 @@ async function seed() {
   await sequelize.authenticate();
   await sequelize.sync();
 
+  const ifEmpty = process.argv.includes('--if-empty');
+  await sequelize.transaction(async (transaction) => {
+    if (ifEmpty && (await User.count({ transaction })) > 0) {
+      console.log('В базе уже есть пользователи. Начальное заполнение пропущено.');
+      return;
+    }
+    await populate(transaction);
+    console.log('Тестовые пользователи и курсы созданы.');
+  });
+  await sequelize.close();
+}
+
+async function populate(transaction) {
+  if (process.env.NODE_ENV === 'production') {
+    for (const key of ['ADMIN_PASSWORD', 'MODERATOR_PASSWORD']) {
+      if ((process.env[key]?.length ?? 0) < 16) {
+        throw new Error(`Для заполнения production-базы задайте ${key} длиной от 16 символов`);
+      }
+    }
+  }
+
   const admin = await upsertUser(
     process.env.ADMIN_EMAIL || 'admin@example.com',
     process.env.ADMIN_PASSWORD || 'Admin123!',
     ROLES.ADMIN,
+    transaction,
   );
   await upsertUser(
     process.env.MODERATOR_EMAIL || 'moderator@example.com',
     process.env.MODERATOR_PASSWORD || 'Moderator123!',
     ROLES.MODERATOR,
+    transaction,
   );
 
   const courses = [
@@ -120,12 +143,12 @@ async function seed() {
       published: true,
       createdBy: admin.id,
     };
-    const existing = await Course.findOne({ where: { title: course.title } });
+    const existing = await Course.findOne({ where: { title: course.title }, transaction });
     if (existing) {
-      await existing.update(defaults);
+      await existing.update(defaults, { transaction });
       persistedCourses.push(existing);
     } else {
-      persistedCourses.push(await Course.create(defaults));
+      persistedCourses.push(await Course.create(defaults, { transaction }));
     }
   }
 
@@ -140,6 +163,7 @@ async function seed() {
       await Lesson.findOrCreate({
         where: { courseId: course.id, position: index + 1 },
         defaults: { title, durationMinutes },
+        transaction,
       });
     }
   }
@@ -153,28 +177,27 @@ async function seed() {
         durationMinutes: 90,
         meetingUrl: course.webinarUrl,
       },
+      transaction,
     });
   }
 
-  const issuedCertificates = await Certificate.findAll({ attributes: ['userId', 'courseId'] });
+  const issuedCertificates = await Certificate.findAll({ attributes: ['userId', 'courseId'], transaction });
   for (const certificate of issuedCertificates) {
     await Enrollment.update(
       { status: 'completed' },
-      { where: { userId: certificate.userId, courseId: certificate.courseId } },
+      { where: { userId: certificate.userId, courseId: certificate.courseId }, transaction },
     );
   }
-
-  console.log('Тестовые пользователи и курсы созданы.');
-  await sequelize.close();
 }
 
-async function upsertUser(email, password, role) {
+async function upsertUser(email, password, role, transaction) {
   const passwordHash = await passwordHasher.hash(password);
   const [user] = await User.scope('withSecrets').findOrCreate({
     where: { email: email.toLowerCase() },
     defaults: { passwordHash, role },
+    transaction,
   });
-  if (user.role !== role) await user.update({ role });
+  if (user.role !== role) await user.update({ role }, { transaction });
   return user;
 }
 

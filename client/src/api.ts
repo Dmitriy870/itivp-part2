@@ -77,7 +77,9 @@ type ApiErrorBody = {
   error?: { code?: string; message?: string; details?: ValidationDetail[] };
 };
 
-const apiBase = (import.meta.env.VITE_API_URL?.trim() || '/api').replace(/\/+$/, '');
+const apiBase = import.meta.env.VITE_USE_API_PROXY === 'true'
+  ? '/api'
+  : (import.meta.env.VITE_API_URL?.trim() || '/api').replace(/\/+$/, '');
 let accessToken = '';
 let refreshing: Promise<User> | undefined;
 
